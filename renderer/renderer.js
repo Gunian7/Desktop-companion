@@ -4,6 +4,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 const bubble = document.getElementById("bubble");
 const canvas = document.getElementById("live2d-canvas");
+const avatarImage = document.getElementById("avatar-image");
 const modelDragRegion = document.getElementById("model-drag-region");
 const inputArea = document.getElementById("input-area");
 const userInput = document.getElementById("user-input");
@@ -149,6 +150,15 @@ function updateModelDragRegion() {
     modelDragRegion.style.top = "0px";
     modelDragRegion.style.width = "100%";
     modelDragRegion.style.height = "100%";
+    return;
+  }
+
+  if (modelType === "image" && avatarImage.style.display !== "none") {
+    const rect = avatarImage.getBoundingClientRect();
+    modelDragRegion.style.left = rect.left + "px";
+    modelDragRegion.style.top = rect.top + "px";
+    modelDragRegion.style.width = rect.width + "px";
+    modelDragRegion.style.height = rect.height + "px";
     return;
   }
 
@@ -443,6 +453,16 @@ function startSyntheticLipSync(source) {
 
   if (modelType === "vrm") {
     startVRMLipSync(source);
+    return;
+  }
+
+  if (modelType === "image") {
+    avatarImage.classList.remove("avatar-breathe");
+    avatarImage.classList.add("avatar-speaking");
+    source.addEventListener("ended", () => {
+      avatarImage.classList.remove("avatar-speaking");
+      avatarImage.classList.add("avatar-breathe");
+    }, { once: true });
     return;
   }
 
@@ -1192,11 +1212,40 @@ function startVRMLipSync(source) {
 
 // ===== Model Loading Dispatch =====
 
+function loadImageAvatar() {
+  const imgConfig = state.config.image;
+  const canvasEl = document.getElementById("live2d-canvas");
+  const vrmEl = document.getElementById("vrm-canvas");
+  canvasEl.style.display = "none";
+  vrmEl.style.display = "none";
+  avatarImage.style.display = "block";
+
+  const src = imgConfig.src
+    ? (imgConfig.src.startsWith("http") || imgConfig.src.startsWith("/")
+        ? imgConfig.src
+        : new URL(imgConfig.src, window.location.href).href)
+    : "";
+  avatarImage.src = src;
+
+  if (imgConfig.idleAnimation !== false) {
+    avatarImage.classList.add("avatar-breathe");
+  }
+
+  const scale = imgConfig.scale || 0.8;
+  avatarImage.style.transform = `scale(${scale})`;
+  avatarImage.style.transformOrigin = "center bottom";
+}
+
 async function loadModel() {
   const modelType = state.config.modelType || "live2d";
 
   if (modelType === "vrm") {
     await loadVRMModel();
+    return;
+  }
+
+  if (modelType === "image") {
+    loadImageAvatar();
     return;
   }
 
@@ -1375,7 +1424,7 @@ async function bootstrap() {
             vrmState.camera.updateProjectionMatrix();
           }
         }
-      } else {
+      } else if (modelType !== "image") {
         placeModel();
       }
     });

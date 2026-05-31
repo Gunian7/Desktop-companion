@@ -40,6 +40,11 @@
       "MouthOpenY"
     ]
   },
+  "image": {
+    "src": "assets/image/avatar.png",
+    "scale": 0.8,
+    "idleAnimation": true
+  },
   "vrm": {
     "modelPath": "../assets/vrm/model.vrm",
     "scale": 1,

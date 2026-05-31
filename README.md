@@ -100,6 +100,7 @@ cp config.example.json config.json
 
 - `"live2d"` — 2D Live2D 模型（默认）
 - `"vrm"` — 3D VRM 模型
+- `"image"` — 静态图片 + CSS 动画（最简单）
 
 #### TTS 配置
 
@@ -140,6 +141,26 @@ cp config.example.json config.json
 #### Live2D 模型
 
 将你的 Live2D 模型文件放入 `assets/live2d/` 目录，修改 `config.json` 中的 `live2d.modelPath` 指向模型 JSON 文件。
+
+#### 图片头像（image）
+
+最简单模式，用静态 PNG/JPG 图片作为头像，CSS 动画驱动：
+
+```json
+{
+  "modelType": "image",
+  "image": {
+    "src": "assets/image/avatar.png",
+    "scale": 0.8,
+    "idleAnimation": true
+  }
+}
+```
+
+- `src` — 图片路径（支持相对路径和 URL）
+- `scale` — 缩放比例（0.8 = 80%）
+- `idleAnimation` — 是否启用待机呼吸动画
+- 说话时自动切换为脉冲动画
 
 #### VRM 3D 模型
 

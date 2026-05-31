@@ -59,6 +59,38 @@ body::before {
   display: none;
 }
 
+#avatar-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  display: none;
+}
+
+@keyframes avatar-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-10px) scale(1.03); }
+}
+
+@keyframes avatar-speaking {
+  0%, 100% { transform: translateY(0) scale(1); }
+  15% { transform: translateY(-5px) scale(1.04); }
+  30% { transform: translateY(2px) scale(1.01); }
+  50% { transform: translateY(-3px) scale(1.03); }
+  70% { transform: translateY(1px) scale(1.02); }
+  85% { transform: translateY(-4px) scale(1.03); }
+}
+
+#avatar-image.avatar-breathe {
+  animation: avatar-breathe 3s ease-in-out infinite;
+}
+
+#avatar-image.avatar-speaking {
+  animation: avatar-speaking 0.6s ease-in-out infinite;
+}
+
 #bubble {
   position: absolute;
   top: 42px;
