@@ -928,58 +928,47 @@ async function loadVRMModel() {
 
   scene.add(vrm.scene);
 
-  // 替换不兼容的 MToon ShaderMaterial 为 MeshStandardMaterial
+  // 替换 ShaderMaterial，丢弃描边材质减少绘制调用
+  let replacedCount = 0;
   vrm.scene.traverse((child) => {
     if (child.isMesh && child.material) {
       const mats = Array.isArray(child.material)
         ? child.material
         : [child.material];
-      const newMats = [];
-      let replacedCount = 0;
+      // 只保留第一个材质（通常是基础材质，丢弃描边轮廓材质）
+      const mat = mats[0];
 
-      for (const mat of mats) {
-        if (mat.isShaderMaterial) {
-          // MToon ShaderMaterial → MeshPhongMaterial（着色器更轻量，兼容性好）
-          const newMat = new THREE.MeshPhongMaterial();
-          if (mat.uniforms?.map?.value) {
-            newMat.map = mat.uniforms.map.value;
-          }
-          if (mat.uniforms?.u_diffuseTexture?.value) {
-            newMat.map = mat.uniforms.u_diffuseTexture.value;
-          }
-          const diffuseColor = mat.uniforms?.u_diffuseColor?.value;
-          if (diffuseColor && typeof diffuseColor.r !== 'undefined') {
-            newMat.color.setRGB(diffuseColor.r, diffuseColor.g, diffuseColor.b);
-          }
-          newMat.transparent = mat.transparent;
-          newMat.depthWrite = mat.transparent ? false : true;
-          newMat.depthTest = true;
-          newMat.renderOrder = mat.transparent ? 1 : 0;
-          newMat.side = mat.side || THREE.DoubleSide;
-          newMat.shininess = 10;
-          newMat.needsUpdate = true;
-          newMats.push(newMat);
-          replacedCount++;
-        } else {
-          // 非 ShaderMaterial，保留但修正设置
-          mat.depthWrite = mat.transparent ? false : true;
-          mat.depthTest = true;
-          mat.renderOrder = mat.transparent ? 1 : 0;
-          mat.needsUpdate = true;
-          newMats.push(mat);
+      if (mat.isShaderMaterial) {
+        const newMat = new THREE.MeshBasicMaterial();
+        if (mat.uniforms?.map?.value) {
+          newMat.map = mat.uniforms.map.value;
         }
-      }
-
-      if (replacedCount > 0) {
-        child.material = Array.isArray(child.material)
-          ? newMats
-          : newMats[0];
+        if (mat.uniforms?.u_diffuseTexture?.value) {
+          newMat.map = mat.uniforms.u_diffuseTexture.value;
+        }
+        const diffuseColor = mat.uniforms?.u_diffuseColor?.value;
+        if (diffuseColor && typeof diffuseColor.r !== 'undefined') {
+          newMat.color.setRGB(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+        }
+        newMat.transparent = mat.transparent;
+        newMat.depthWrite = mat.transparent ? false : true;
+        newMat.depthTest = true;
+        newMat.renderOrder = mat.transparent ? 1 : 0;
+        newMat.side = mat.side || THREE.DoubleSide;
+        newMat.needsUpdate = true;
+        child.material = newMat;
+        replacedCount++;
+      } else {
+        mat.depthWrite = mat.transparent ? false : true;
+        mat.depthTest = true;
+        mat.renderOrder = mat.transparent ? 1 : 0;
+        mat.needsUpdate = true;
       }
 
       child.renderOrder = 0;
     }
   });
-  console.log("[VRM] ShaderMaterial replacement complete.");
+  console.log("[VRM] Replaced", replacedCount, "ShaderMaterials, kept 1 mat per mesh.");
 
   // 自动适配模型大小
   const box = new THREE.Box3().setFromObject(vrm.scene);
