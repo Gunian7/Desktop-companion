@@ -293,7 +293,160 @@ async function stopMediaStream() {
   }
 }
 
-// ===== Web Speech API 语音识别（Chrome 内置，无需 GPT-SoVITS）=====
+// ===== 阿里云 DashScope Paraformer 实时 WebSocket ASR =====
+
+function setupDashScopeRealtimeASR() {
+  if (!navigator.mediaDevices?.getUserMedia) { micBtn.title = "不支持录音"; return; }
+
+  let ws = null;
+  let audioCtx = null;
+  let processor = null;
+  let stream = null;
+  let finalText = "";
+  let interimText = "";
+
+  micBtn.addEventListener("click", async () => {
+    if (state.isBusy) return;
+
+    if (state.isListening) {
+      stopRecording();
+      return;
+    }
+
+    try {
+      // 1. 获取麦克风
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
+
+      // 2. 连接 WebSocket
+      ws = new WebSocket("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+      ws.binaryType = "arraybuffer";
+
+      await new Promise((resolve, reject) => {
+        ws.onopen = resolve;
+        ws.onerror = () => reject(new Error("WebSocket 连接失败"));
+        setTimeout(() => reject(new Error("WebSocket 连接超时")), 5000);
+      });
+
+      // 3. 发送 run-task
+      const taskId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
+      ws.send(JSON.stringify({
+        header: { action: "run-task", task_id: taskId, streaming: "duplex" },
+        payload: {
+          task_group: "audio", task: "asr", function: "recognition",
+          model: "paraformer-realtime-v2",
+          parameters: {
+            format: "pcm", sample_rate: 16000,
+            language_hints: ["zh"],
+            punctuation_prediction_enabled: true,
+            max_sentence_silence: 800,
+          },
+          input: {},
+        },
+      }));
+
+      // 4. 等待 task-started
+      await new Promise((resolve) => {
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+          if (msg.header?.event === "task-started") resolve();
+        };
+      });
+
+      // 5. 开始录音并流式发送 PCM
+      audioCtx = new AudioContext({ sampleRate: 16000 });
+      const source = audioCtx.createMediaStreamSource(stream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+      // 用 OfflineAudioContext 降采样（如果浏览器采样率不是 16000）
+      let resampleCtx = null;
+      if (audioCtx.sampleRate !== 16000) {
+        resampleCtx = new OfflineAudioContext(1, 4096, 16000);
+      }
+
+      processor.onaudioprocess = (e) => {
+        if (ws?.readyState !== WebSocket.OPEN) return;
+        let floatData = e.inputBuffer.getChannelData(0);
+        // 转 Int16 PCM
+        const int16 = new Int16Array(floatData.length);
+        for (let i = 0; i < floatData.length; i++) {
+          int16[i] = Math.max(-32768, Math.min(32767, Math.round(floatData[i] * 32767)));
+        }
+        ws.send(int16.buffer);
+      };
+
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+
+      // 6. 接收识别结果
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.header?.event === "result-generated") {
+            const text = msg.payload?.output?.sentence?.text || "";
+            if (msg.payload?.output?.sentence?.end_time) {
+              finalText += text;
+              interimText = "";
+              showBubble(finalText);
+            } else {
+              interimText = text;
+              showBubble(finalText + interimText || "我在听...");
+            }
+          } else if (msg.header?.event === "task-failed") {
+            console.error("ASR task failed:", msg);
+            showError("语音识别失败：" + (msg.payload?.output?.message || "未知错误"));
+          }
+        } catch {}
+      };
+
+      // UI 状态
+      state.isListening = true;
+      micBtn.classList.add("is-listening");
+      showBubble("我在听...");
+      finalText = "";
+      interimText = "";
+      if ((state.config?.modelType || "live2d") === "image") {
+        avatarImage.classList.remove("avatar-idle");
+        avatarImage.classList.add("avatar-listening");
+      }
+    } catch (err) {
+      console.error("ASR setup failed:", err);
+      stopRecording();
+      showError("语音识别启动失败：" + (err.message || err));
+    }
+  });
+
+  function stopRecording() {
+    // 发送 finish-task
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ header: { action: "finish-task" } }));
+    }
+
+    // 清理
+    if (processor) { processor.disconnect(); processor = null; }
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+
+    setTimeout(() => {
+      if (ws) { ws.close(); ws = null; }
+    }, 500);
+
+    state.isListening = false;
+    micBtn.classList.remove("is-listening");
+    avatarImage.classList.remove("avatar-listening");
+    if ((state.config?.modelType || "live2d") === "image") {
+      avatarImage.classList.add("avatar-idle");
+    }
+
+    // 有结果就发送
+    const text = (finalText + interimText).trim();
+    if (text) {
+      userInput.value = "";
+      void handleUserInput(text);
+    }
+  }
+}
+
+// ===== 旧版 Web Speech API ASR（回退用）=====
 
 function setupWebSpeechInput() {
   const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1756,8 +1909,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    setupLocalSpeechRecorder();
-    bindSpeechInput();
+    setupDashScopeRealtimeASR();
     await loadModel();
 
     window.addEventListener("resize", () => {
