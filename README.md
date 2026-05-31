@@ -104,31 +104,31 @@ cp config.example.json config.json
 
 #### TTS 配置
 
-支持两种 TTS 模式，通过 `provider` 字段切换：
+`provider` 选择引擎，`apiType` 选择具体后端：
 
-**GPT-SoVITS（本地部署）— provider: "sovits"**
-
-```json
-{
-  "tts": {
-    "provider": "sovits",
-    "baseURL": "http://127.0.0.1:9880",
-    "refAudioPath": "你的参考音频路径.wav",
-    "promptText": "参考音频对应的文本"
-  }
-}
-```
-
-**第三方 API TTS — provider: "api"**
-
-兼容 OpenAI TTS API 格式的服务（OpenAI、Azure、任意兼容接口等）：
+**方案一：Edge TTS（推荐，免费）— provider: "api", apiType: "edge"**
 
 ```json
 {
   "tts": {
     "provider": "api",
+    "apiType": "edge",
+    "apiVoice": "zh-CN-XiaoxiaoNeural",
+    "apiFormat": "mp3"
+  }
+}
+```
+无需 API key。可用语音：`zh-CN-XiaoxiaoNeural`（晓晓）、`zh-CN-YunxiNeural`（云希）、`zh-CN-XiaoyiNeural`（晓伊）。
+
+**方案二：OpenAI 兼容 TTS — provider: "api", apiType: "openai"**
+
+```json
+{
+  "tts": {
+    "provider": "api",
+    "apiType": "openai",
     "apiBaseURL": "https://api.openai.com/v1",
-    "apiKey": "sk-your-tts-api-key",
+    "apiKey": "sk-your-key",
     "apiModel": "tts-1",
     "apiVoice": "alloy",
     "apiFormat": "wav"
@@ -136,7 +136,34 @@ cp config.example.json config.json
 }
 ```
 
-支持自定义 `apiVoice`（如 alloy, echo, fable, onyx, nova, shimmer）和 `apiModel`（如 tts-1, tts-1-hd）。
+**方案三：DashScope CosyVoice — provider: "api", apiType: "dashscope"**
+
+```json
+{
+  "tts": {
+    "provider": "api",
+    "apiType": "dashscope",
+    "apiKey": "sk-your-key",
+    "apiModel": "cosyvoice-v1",
+    "apiVoice": "longxiaochun",
+    "apiFormat": "wav"
+  }
+}
+```
+需在阿里云百炼开通语音合成服务。
+
+**方案四：GPT-SoVITS 本地 — provider: "sovits"**
+
+```json
+{
+  "tts": {
+    "provider": "sovits",
+    "baseURL": "http://127.0.0.1:9880",
+    "refAudioPath": "参考音频.wav",
+    "promptText": "参考音频文本"
+  }
+}
+```
 
 #### Live2D 模型
 

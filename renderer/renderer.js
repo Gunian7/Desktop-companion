@@ -876,7 +876,8 @@ async function processSpeechQueue() {
     } catch (error) {
       console.error("Speech synthesis failed:", error);
       state.speakQueue = [];
-      showBubble(`\u8bed\u97f3\u64ad\u653e\u5931\u8d25\uff1a${error.message || error}`);
+      const errMsg = error.message || String(error);
+      showBubble("语音播放失败：" + (errMsg.length > 60 ? errMsg.slice(0, 60) + "..." : errMsg));
       break;
     }
   }
