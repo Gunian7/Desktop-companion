@@ -353,35 +353,13 @@ function setupNlsRestASR() {
     try {
       const blob = new Blob(chunks, { type: "audio/webm" });
       const arrayBuffer = await blob.arrayBuffer();
-      const audioCtx = new AudioContext();
 
-      let audioBuffer;
-      try { audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0)); }
-      catch { audioCtx.close(); showError("音频解码失败"); return; }
-
-      // 重采样到 16kHz mono PCM
-      const targetRate = 16000;
-      const offline = new OfflineAudioContext(1, audioBuffer.duration * targetRate, targetRate);
-      const src = offline.createBufferSource();
-      src.buffer = audioBuffer;
-      src.connect(offline.destination);
-      src.start();
-      const rendered = await offline.startRendering();
-      audioCtx.close();
-
-      // Float32 → Int16
-      const pcm = rendered.getChannelData(0);
-      const int16 = new Int16Array(pcm.length);
-      for (let i = 0; i < pcm.length; i++) {
-        int16[i] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * 32767)));
-      }
-
-      // 调用 NLS REST API
+      // 直接发送原始音频，不做 AudioContext 转换（避免崩溃）
       const asrConfig = state.config.asr || {};
       const params = new URLSearchParams({
         appkey: asrConfig.appkey || "",
-        format: "pcm",
-        sample_rate: String(targetRate),
+        format: "opus",
+        sample_rate: "16000",
         enable_punctuation_prediction: "true",
         enable_intermediate_result: "false",
       });
@@ -394,12 +372,12 @@ function setupNlsRestASR() {
             "X-NLS-Token": asrConfig.token || state.config.llm?.apiKey || "",
             "Content-Type": "application/octet-stream",
           },
-          body: int16.buffer,
+          body: arrayBuffer,
         }
       );
 
       const result = await response.json();
-      console.error("[NLS ASR]", response.status, JSON.stringify(result));
+      console.error("[NLS]", response.status, JSON.stringify(result));
 
       if (result.status === 200 && result.result) {
         userInput.value = "";
