@@ -441,9 +441,9 @@ function stopLipSync() {
     vrmState.lipSyncId = 0;
   }
 
-  if (vrmState.renderLoopId) {
-    // 渲染循环不停止，只清嘴型
-  }
+  // 图片模式：清理说话 class
+  avatarImage.classList.remove("avatar-talking");
+  avatarImage.classList.add("avatar-idle");
 
   if (vrmState.vrm?.expressionManager) {
     vrmState.vrm.expressionManager.setValue("aa", 0);
@@ -470,10 +470,21 @@ function startSyntheticLipSync(source) {
   if (modelType === "image") {
     avatarImage.classList.remove("avatar-idle");
     avatarImage.classList.add("avatar-talking");
-    source.addEventListener("ended", () => {
+    const restore = () => {
       avatarImage.classList.remove("avatar-talking");
       avatarImage.classList.add("avatar-idle");
-    }, { once: true });
+    };
+    // 兼容真实 audio element 和 fakeSource 对象
+    if (typeof source.addEventListener === "function") {
+      source.addEventListener("ended", restore, { once: true });
+    } else {
+      // fakeSource（playAudioViaBuffer 回退）— 用 onended 回调
+      const origOnEnded = source.onended;
+      source.onended = () => {
+        if (origOnEnded) origOnEnded();
+        restore();
+      };
+    }
     return;
   }
 
@@ -707,12 +718,16 @@ async function requestTTSViaAPI(text) {
 
   if (apiType === "dashscope") {
     // DashScope CosyVoice 原生格式
-    const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${ttsConfig.apiKey}`,
-      },
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ttsConfig.apiKey}`,
+        },
       body: JSON.stringify({
         model: ttsConfig.apiModel || "cosyvoice-v1",
         input: {
@@ -745,6 +760,9 @@ async function requestTTSViaAPI(text) {
       return bytes.buffer;
     }
     throw new Error("DashScope TTS: no audio data in response");
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   // OpenAI 兼容格式
@@ -1214,9 +1232,14 @@ function startVRMRenderLoop() {
 }
 
 function stopVRMRender() {
-  if (vrmState.animationFrameId) {
-    cancelAnimationFrame(vrmState.animationFrameId);
-    vrmState.animationFrameId = 0;
+  if (vrmState.renderLoopId) {
+    cancelAnimationFrame(vrmState.renderLoopId);
+    vrmState.renderLoopId = 0;
+  }
+
+  if (vrmState.lipSyncId) {
+    cancelAnimationFrame(vrmState.lipSyncId);
+    vrmState.lipSyncId = 0;
   }
 
   if (vrmState.renderer) {

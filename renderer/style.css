@@ -68,6 +68,7 @@ body::before {
   max-height: 80%;
   object-fit: contain;
   pointer-events: auto;
+  z-index: 9;
   display: none;
   filter: drop-shadow(0 4px 24px rgba(0, 0, 0, 0.15));
   transition: filter 1s ease;
