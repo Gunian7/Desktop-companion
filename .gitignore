@@ -9,6 +9,9 @@ config.local.json
 .electron-user-data/
 .runtime-temp/
 
+# VRM 3D 模型文件（用户自行添加，不提交到仓库）
+assets/vrm/
+
 # 系统文件
 Thumbs.db
 .DS_Store
