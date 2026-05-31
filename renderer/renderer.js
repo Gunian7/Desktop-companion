@@ -1640,13 +1640,8 @@ async function bootstrap() {
     addModelDragInteractivity();
     bindInputEvents();
 
-    // 优先使用 Web Speech API（Chrome 内置），否则回退到本地 ASR
-    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
-      setupWebSpeechInput();
-    } else {
-      setupLocalSpeechRecorder();
-      bindSpeechInput();
-    }
+    setupLocalSpeechRecorder();
+    bindSpeechInput();
     await loadModel();
 
     window.addEventListener("resize", () => {
