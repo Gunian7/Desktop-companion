@@ -1850,7 +1850,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    setupDashScopeASR();
+    setupWebSpeechInput();
     await loadModel();
 
     window.addEventListener("resize", () => {
