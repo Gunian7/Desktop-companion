@@ -1,0 +1,14 @@
+{
+  "name": "desktop-vtuber",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --user-data-dir=./.electron-user-data"
+  },
+  "dependencies": {
+    "electron": "^28.3.3",
+    "pixi-live2d-display": "^0.4.0",
+    "pixi.js": "^7.4.3"
+  }
+}

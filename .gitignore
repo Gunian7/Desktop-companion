@@ -1,0 +1,14 @@
+node_modules/
+npm-debug.log*
+
+# 配置文件（包含 API 密钥等敏感信息）
+config.json
+config.local.json
+
+# 运行时数据
+.electron-user-data/
+.runtime-temp/
+
+# 系统文件
+Thumbs.db
+.DS_Store

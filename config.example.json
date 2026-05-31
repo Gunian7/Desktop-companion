@@ -1,0 +1,40 @@
+{
+  "llm": {
+    "baseURL": "https://api.example.com/openai/v1",
+    "apiKey": "your-api-key-here",
+    "model": "your-model-name",
+    "systemPrompt": "你是弗洛洛，是一位可爱的桌面 AI 助手。你必须始终以\"弗洛洛\"的身份说话，不把自己说成其他角色或通用 AI 助手。说话简洁，自然，稍微可爱一点，每次回复不超过两句话。",
+    "maxHistoryTurns": 4
+  },
+  "tts": {
+    "baseURL": "http://127.0.0.1:9880",
+    "apiMode": "auto",
+    "endpoint": "/tts",
+    "textLang": "zh",
+    "promptLang": "zh",
+    "refAudioPath": "【默认】别紧张，我只是以一名指挥家的身份，受邀前来参与这场狂热的宴会而已。.wav",
+    "promptText": "别紧张，我只是以一名指挥家的身份，受邀前来参与这场狂热的宴会而已。",
+    "textSplitMethod": "cut5",
+    "mediaType": "wav",
+    "streamingMode": false,
+    "parallelInfer": false,
+    "splitBucket": false
+  },
+  "live2d": {
+    "modelPath": "../assets/live2d/ggc-10qpt01/10qpt01__l2d_355.u.model3.json",
+    "scale": 0.96,
+    "x": 0,
+    "y": 18,
+    "autoFit": true,
+    "idleMotionGroup": "Idle",
+    "mouthParamCandidates": [
+      "ParamMouthOpenY",
+      "PARAM_MOUTH_OPEN_Y",
+      "MouthOpenY"
+    ]
+  },
+  "window": {
+    "clickThrough": false,
+    "bubbleAutoHideDelay": 2200
+  }
+}

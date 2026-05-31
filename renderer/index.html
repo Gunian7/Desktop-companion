@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' data: blob: vtuber: *; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src * data: blob: vtuber:; img-src 'self' data: blob: file: vtuber: *; media-src * data: blob: vtuber:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Desktop AI VTuber</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="model-drag-region" aria-hidden="true"></div>
+    <canvas id="live2d-canvas"></canvas>
+
+    <div id="bubble" aria-live="polite"></div>
+
+    <div id="input-area">
+      <button id="mic-btn" type="button" title="语音输入">&#x1F3A4;</button>
+      <input
+        id="user-input"
+        type="text"
+        maxlength="240"
+        placeholder="&#x548C;&#x5979;&#x8BF4;&#x70B9;&#x4EC0;&#x4E48;..."
+      />
+      <button id="send-btn" type="button">&#x53D1;&#x9001;</button>
+    </div>
+
+    <script src="../node_modules/pixi.js/dist/pixi.min.js"></script>
+    <script src="../assets/vendor/live2dcubismcore.min.js"></script>
+    <script src="../node_modules/pixi-live2d-display/dist/cubism4.min.js"></script>
+    <audio id="tts-audio" preload="auto"></audio>
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>

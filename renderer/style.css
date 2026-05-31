@@ -1,0 +1,186 @@
+:root {
+  color-scheme: light;
+  --glass-bg: rgba(255, 248, 241, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.56);
+  --shadow: 0 16px 42px rgba(46, 33, 26, 0.18);
+  --accent: #d96f4c;
+  --accent-strong: #bc5635;
+  --text: #38251d;
+  --text-soft: rgba(56, 37, 29, 0.72);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent !important;
+  user-select: none;
+  font-family: "Microsoft YaHei UI", "PingFang SC", "Segoe UI", sans-serif;
+}
+
+body::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: none;
+}
+
+#model-drag-region {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 8;
+  pointer-events: auto;
+  -webkit-app-region: drag;
+  background: transparent;
+}
+
+#live2d-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+#bubble {
+  position: absolute;
+  top: 42px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 120px;
+  max-width: min(82vw, 320px);
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: var(--glass-bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+  text-align: center;
+  display: none;
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(14px);
+  box-shadow: var(--shadow);
+  z-index: 12;
+  -webkit-app-region: no-drag;
+}
+
+#bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
+  transform: translateX(-50%) rotate(45deg);
+  background: inherit;
+  border-right: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+#input-area {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  width: min(88vw, 320px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(255, 251, 247, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 10px 36px rgba(46, 33, 26, 0.14);
+  z-index: 20;
+  -webkit-app-region: no-drag;
+}
+
+#mic-btn {
+  border: none;
+  outline: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--accent-strong);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease, color 120ms ease, opacity 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+#mic-btn:hover {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+#mic-btn:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+#mic-btn.is-listening {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fffaf6;
+}
+
+#user-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  caret-color: var(--accent-strong);
+  -webkit-app-region: no-drag;
+}
+
+#user-input::placeholder {
+  color: var(--text-soft);
+}
+
+#send-btn {
+  border: none;
+  outline: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: #fffaf6;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+#send-btn:hover {
+  filter: brightness(1.04);
+}
+
+#send-btn:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+#send-btn:disabled,
+#user-input:disabled,
+#mic-btn:disabled {
+  opacity: 0.68;
+  cursor: wait;
+}
+
+#tts-audio {
+  display: none;
+}
