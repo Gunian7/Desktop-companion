@@ -212,4 +212,15 @@ npm start
 
 ## 许可证
 
-本项目仅供个人学习和娱乐使用。
+本项目采用 **MIT** 协议开源。详见 [LICENSE](./LICENSE) 文件。
+
+### 第三方依赖许可
+
+| 组件 | 协议 |
+|------|------|
+| Electron | MIT |
+| PixiJS | MIT |
+| pixi-live2d-display | MIT |
+| GPT-SoVITS | MIT |
+| Live2D Cubism Core | Live2D 专有许可（免费非商业使用）|
+
