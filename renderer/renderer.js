@@ -982,11 +982,10 @@ async function loadVRMModel() {
   });
   console.log("[VRM] Replaced", replacedCount, "materials, total verts:", totalVerts);
 
-  if (totalVerts > 100000) {
-    console.warn("[VRM] WARNING: Model has", totalVerts, "total vertices — very high-poly!");
-    console.warn("[VRM] It may crash GPU in transparent window. Recommend decimating in Blender (target <50K).");
-    showBubble("模型面数极高（" + Math.round(totalVerts/1000) + "K 顶点），建议用 Blender 减面后再使用。");
-    setTimeout(() => hideBubble(6000), 1000);
+  if (totalVerts > 200000) {
+    console.warn("[VRM] WARNING: Model has", totalVerts, "total vertices — may crash GPU!");
+    showBubble("模型面数较高（" + Math.round(totalVerts/1000) + "K 顶点），可能影响性能。");
+    setTimeout(() => hideBubble(5000), 1000);
   }
 
   // 自动适配模型大小
@@ -1033,11 +1032,36 @@ function startVRMRenderLoop() {
     cancelAnimationFrame(vrmState.animationFrameId);
   }
 
+  const startTime = performance.now();
+
   const tick = () => {
     if (!vrmState.vrm) return;
 
     const delta = vrmState.clock.getDelta();
+    const elapsed = (performance.now() - startTime) / 1000;
+
     vrmState.vrm.update(delta);
+
+    // 呼吸式微动
+    const breathe = Math.sin(elapsed * 1.2) * 0.008;
+    vrmState.vrm.scene.position.y += breathe;
+
+    // 轻微左右摇摆
+    const sway = Math.sin(elapsed * 0.7) * 0.015;
+    vrmState.vrm.scene.rotation.y = sway;
+
+    // 随机表情（每 8 秒切换一次）
+    const exprIndex = Math.floor(elapsed / 8) % 5;
+    const expressions = ["happy", "neutral", "relaxed", "surprised", "neutral"];
+    if (vrmState.vrm.expressionManager) {
+      const em = vrmState.vrm.expressionManager;
+      const currentExpr = expressions[exprIndex];
+      for (const name of expressions) {
+        em.setValue(name, 0);
+      }
+      em.setValue(currentExpr, 0.15);
+    }
+
     vrmState.renderer.render(vrmState.scene, vrmState.camera);
     vrmState.animationFrameId = requestAnimationFrame(tick);
   };
