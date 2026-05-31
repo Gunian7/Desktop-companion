@@ -1,3 +1,7 @@
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
 const bubble = document.getElementById("bubble");
 const canvas = document.getElementById("live2d-canvas");
 const modelDragRegion = document.getElementById("model-drag-region");
@@ -30,6 +34,16 @@ const state = {
   mediaRecorder: null,
   mediaStream: null,
   recordingChunks: [],
+};
+
+const vrmState = {
+  renderer: null,
+  scene: null,
+  camera: null,
+  vrm: null,
+  clock: null,
+  canvas: null,
+  animationFrameId: 0,
 };
 
 function showBubble(text) {
@@ -77,6 +91,30 @@ function updateMousePassthrough() {
 }
 
 function pointHitsModel(clientX, clientY) {
+  const modelType = state.config?.modelType || "live2d";
+
+  if (modelType === "vrm") {
+    if (!vrmState.vrm || !vrmState.camera || !vrmState.canvas) {
+      return false;
+    }
+
+    const rect = vrmState.canvas.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(x, y), vrmState.camera);
+
+    const meshes = [];
+    vrmState.vrm.scene.traverse((child) => {
+      if (child.isMesh) {
+        meshes.push(child);
+      }
+    });
+
+    const intersects = raycaster.intersectObjects(meshes, false);
+    return intersects.length > 0;
+  }
+
   if (!state.model) {
     return false;
   }
@@ -98,6 +136,16 @@ function pointHitsModel(clientX, clientY) {
 }
 
 function updateModelDragRegion() {
+  const modelType = state.config?.modelType || "live2d";
+
+  if (modelType === "vrm") {
+    modelDragRegion.style.left = "0px";
+    modelDragRegion.style.top = "0px";
+    modelDragRegion.style.width = "100%";
+    modelDragRegion.style.height = "100%";
+    return;
+  }
+
   if (!state.model) {
     modelDragRegion.style.width = "0px";
     modelDragRegion.style.height = "0px";
@@ -142,19 +190,24 @@ function addInputInteractivity() {
 }
 
 function addModelDragInteractivity() {
-  canvas.addEventListener("pointermove", (event) => {
-    state.hoverModel = pointHitsModel(event.clientX, event.clientY);
-    canvas.style.cursor = state.hoverModel ? "move" : "default";
-    updateMousePassthrough();
-    updateModelDragRegion();
-  });
+  const vrmCanvas = document.getElementById("vrm-canvas");
+  const pointerTargets = [canvas, vrmCanvas];
 
-  canvas.addEventListener("pointerleave", () => {
-    state.hoverModel = false;
-    canvas.style.cursor = "default";
-    updateMousePassthrough();
-  });
-}
+  for (const target of pointerTargets) {
+    target.addEventListener("pointermove", (event) => {
+      state.hoverModel = pointHitsModel(event.clientX, event.clientY);
+      target.style.cursor = state.hoverModel ? "move" : "default";
+      updateMousePassthrough();
+      updateModelDragRegion();
+    });
+
+    target.addEventListener("pointerleave", () => {
+      state.hoverModel = false;
+      target.style.cursor = "default";
+      updateMousePassthrough();
+    });
+  }
+} // end addModelDragInteractivity
 
 function setListening(isListening) {
   state.isListening = isListening;
@@ -345,6 +398,17 @@ function setMouthValue(value) {
 }
 
 function stopLipSync() {
+  if (vrmState.animationFrameId) {
+    cancelAnimationFrame(vrmState.animationFrameId);
+    vrmState.animationFrameId = 0;
+  }
+
+  if (vrmState.vrm?.expressionManager) {
+    vrmState.vrm.expressionManager.setValue("aa", 0);
+    vrmState.vrm.expressionManager.setValue("ih", 0);
+    vrmState.vrm.expressionManager.setValue("oh", 0);
+  }
+
   if (state.currentAnalyserFrame) {
     cancelAnimationFrame(state.currentAnalyserFrame);
     state.currentAnalyserFrame = 0;
@@ -354,6 +418,13 @@ function stopLipSync() {
 }
 
 function startSyntheticLipSync(source) {
+  const modelType = state.config?.modelType || "live2d";
+
+  if (modelType === "vrm") {
+    startVRMLipSync(source);
+    return;
+  }
+
   stopLipSync();
 
   const tick = () => {
@@ -786,7 +857,146 @@ function tryStartIdleMotion() {
   } catch {}
 }
 
+// ===== VRM 3D Model Functions =====
+
+async function loadVRMModel() {
+  const vrmCanvas = document.getElementById("vrm-canvas");
+  const live2dCanvas = document.getElementById("live2d-canvas");
+  vrmCanvas.style.display = "block";
+  live2dCanvas.style.display = "none";
+
+  const vrmConfig = state.config.vrm;
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas: vrmCanvas,
+    alpha: true,
+    antialias: true,
+  });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  vrmState.renderer = renderer;
+  vrmState.canvas = vrmCanvas;
+
+  const scene = new THREE.Scene();
+  vrmState.scene = scene;
+
+  const camera = new THREE.PerspectiveCamera(
+    vrmConfig.cameraFov || 30,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    100
+  );
+  camera.position.set(0, 0, vrmConfig.cameraDistance || 2.5);
+  vrmState.camera = camera;
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambientLight);
+
+  const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  mainLight.position.set(1, 1, 1);
+  scene.add(mainLight);
+
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  fillLight.position.set(-1, 0.5, 1);
+  scene.add(fillLight);
+
+  const rimLight = new THREE.DirectionalLight(0xffffff, 0.2);
+  rimLight.position.set(0, -1, -1);
+  scene.add(rimLight);
+
+  vrmState.clock = new THREE.Clock();
+
+  const loader = new GLTFLoader();
+  loader.register((parser) => new VRMLoaderPlugin(parser));
+
+  const modelUrl =
+    vrmConfig.resolvedModelURL ||
+    new URL(vrmConfig.modelPath, window.location.href).href;
+
+  const gltf = await loader.loadAsync(modelUrl);
+  const vrm = gltf.userData.vrm;
+  vrmState.vrm = vrm;
+
+  scene.add(vrm.scene);
+
+  const scale = vrmConfig.scale || 12;
+  vrm.scene.scale.set(scale, scale, scale);
+  vrm.scene.position.set(vrmConfig.x || 0, vrmConfig.y || -200, 0);
+
+  vrm.lookAt?.target && (vrm.lookAt.target = camera);
+
+  startVRMRenderLoop();
+}
+
+function startVRMRenderLoop() {
+  if (vrmState.animationFrameId) {
+    cancelAnimationFrame(vrmState.animationFrameId);
+  }
+
+  const tick = () => {
+    if (!vrmState.vrm) return;
+
+    const delta = vrmState.clock.getDelta();
+    vrmState.vrm.update(delta);
+    vrmState.renderer.render(vrmState.scene, vrmState.camera);
+    vrmState.animationFrameId = requestAnimationFrame(tick);
+  };
+
+  tick();
+}
+
+function stopVRMRender() {
+  if (vrmState.animationFrameId) {
+    cancelAnimationFrame(vrmState.animationFrameId);
+    vrmState.animationFrameId = 0;
+  }
+
+  if (vrmState.renderer) {
+    vrmState.renderer.dispose();
+    vrmState.renderer = null;
+  }
+
+  vrmState.scene = null;
+  vrmState.camera = null;
+  vrmState.vrm = null;
+  vrmState.clock = null;
+}
+
+function startVRMLipSync(source) {
+  stopLipSync();
+
+  const tick = () => {
+    if (!source || source.paused || source.ended || !vrmState.vrm?.expressionManager) {
+      if (vrmState.vrm?.expressionManager) {
+        vrmState.vrm.expressionManager.setValue("aa", 0);
+      }
+      vrmState.animationFrameId = 0;
+      return;
+    }
+
+    const amp = 0.2 + Math.abs(Math.sin(source.currentTime * 14)) * 0.75;
+    const em = vrmState.vrm.expressionManager;
+    em.setValue("aa", Math.min(amp, 1));
+    em.setValue("ih", Math.min(amp * 0.2, 1));
+    em.setValue("oh", Math.min(amp * 0.15, 1));
+    vrmState.animationFrameId = requestAnimationFrame(tick);
+  };
+
+  tick();
+}
+
+// ===== Model Loading Dispatch =====
+
 async function loadModel() {
+  const modelType = state.config.modelType || "live2d";
+
+  if (modelType === "vrm") {
+    await loadVRMModel();
+    return;
+  }
+
   const modelUrl =
     state.config.live2d.resolvedModelURL ||
     new URL(state.config.live2d.modelPath, window.location.href).href;
@@ -931,14 +1141,18 @@ async function bootstrap() {
     showBubble("\u6b63\u5728\u52a0\u8f7d\u6a21\u578b...");
 
     state.config = await window.electronAPI.getConfig();
-    state.app = new window.PIXI.Application({
-      view: canvas,
-      resizeTo: window,
-      transparent: true,
-      backgroundAlpha: 0,
-      antialias: true,
-      autoDensity: true,
-    });
+    const modelType = state.config.modelType || "live2d";
+
+    if (modelType === "live2d") {
+      state.app = new window.PIXI.Application({
+        view: canvas,
+        resizeTo: window,
+        transparent: true,
+        backgroundAlpha: 0,
+        antialias: true,
+        autoDensity: true,
+      });
+    }
 
     addInputInteractivity();
     addModelDragInteractivity();
@@ -947,7 +1161,22 @@ async function bootstrap() {
     bindSpeechInput();
     await loadModel();
 
-    window.addEventListener("resize", placeModel);
+    window.addEventListener("resize", () => {
+      if (modelType === "vrm") {
+        if (vrmState.renderer) {
+          const w = window.innerWidth;
+          const h = window.innerHeight;
+          vrmState.renderer.setSize(w, h);
+          if (vrmState.camera) {
+            vrmState.camera.aspect = w / h;
+            vrmState.camera.updateProjectionMatrix();
+          }
+        }
+      } else {
+        placeModel();
+      }
+    });
+
     updateMousePassthrough();
 
     showBubble("\u51c6\u5907\u597d\u4e86\uff0c\u6765\u804a\u5929\u5427\u3002");

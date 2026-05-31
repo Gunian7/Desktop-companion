@@ -102,6 +102,21 @@ function resolveModelURL(config) {
   return `vtuber://${relativePath}`;
 }
 
+function resolveVRMModelURL(config) {
+  const configuredPath = config?.vrm?.modelPath;
+  if (!configuredPath) {
+    return null;
+  }
+
+  const absolutePath = path.resolve(APP_ROOT, "renderer", configuredPath);
+  if (!absolutePath.startsWith(ASSETS_ROOT)) {
+    return null;
+  }
+
+  const relativePath = path.relative(ASSETS_ROOT, absolutePath).replace(/\\/g, "/");
+  return `vtuber://${relativePath}`;
+}
+
 function clampWindowPosition(x, y) {
   if (!mainWindow) {
     return { x, y };
@@ -290,6 +305,10 @@ ipcMain.handle("get-config", () => {
     live2d: {
       ...config.live2d,
       resolvedModelURL: resolveModelURL(config),
+    },
+    vrm: {
+      ...config.vrm,
+      resolvedModelURL: resolveVRMModelURL(config),
     },
     appRoot: APP_ROOT,
   };

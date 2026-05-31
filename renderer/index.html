@@ -11,8 +11,19 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
+
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "../node_modules/three/build/three.module.js",
+        "three/addons/": "../node_modules/three/examples/jsm/",
+        "@pixiv/three-vrm": "../node_modules/@pixiv/three-vrm/lib/three-vrm.module.js"
+      }
+    }
+    </script>
     <div id="model-drag-region" aria-hidden="true"></div>
     <canvas id="live2d-canvas"></canvas>
+    <canvas id="vrm-canvas"></canvas>
 
     <div id="bubble" aria-live="polite"></div>
 
