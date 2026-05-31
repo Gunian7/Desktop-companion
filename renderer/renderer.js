@@ -692,6 +692,51 @@ async function requestTTSLegacy(text) {
 
 async function requestTTSViaAPI(text) {
   const ttsConfig = state.config.tts;
+  const apiType = ttsConfig.apiType || "openai";
+
+  if (apiType === "dashscope") {
+    // DashScope CosyVoice 原生格式
+    const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${ttsConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: ttsConfig.apiModel || "cosyvoice-v1",
+        input: {
+          text: text,
+          voice: ttsConfig.apiVoice || "longxiaochun",
+          format: ttsConfig.apiFormat || "wav",
+          sample_rate: 24000,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const result = await response.json();
+    // DashScope 返回 { output: { audio: { url: "..." } } } 或 { output: { audio: { data: "base64..." } } }
+    const audio = result?.output?.audio;
+    if (audio?.url) {
+      const audioResp = await fetch(audio.url);
+      if (!audioResp.ok) throw new Error("Failed to download TTS audio");
+      return audioResp.arrayBuffer();
+    }
+    if (audio?.data) {
+      const binaryStr = atob(audio.data);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      return bytes.buffer;
+    }
+    throw new Error("DashScope TTS: no audio data in response");
+  }
+
+  // OpenAI 兼容格式
   const baseURL = normalizeBaseURL(ttsConfig.apiBaseURL);
   const response = await fetch(`${baseURL}/audio/speech`, {
     method: "POST",
