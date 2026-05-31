@@ -763,6 +763,16 @@ async function requestTTSViaAPI(text) {
     // DashScope CosyVoice 原生格式
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const reqBody = {
+      model: ttsConfig.apiModel || "cosyvoice-v1",
+      input: {
+        text: text,
+        voice: ttsConfig.apiVoice || "longxiaochun",
+        format: ttsConfig.apiFormat || "wav",
+        sample_rate: 24000,
+      },
+    };
+    console.log("[TTS] DashScope request:", JSON.stringify({ model: reqBody.model, voice: reqBody.input.voice, textLen: text.length }));
     try {
       const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer", {
         method: "POST",
@@ -771,22 +781,17 @@ async function requestTTSViaAPI(text) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${ttsConfig.apiKey}`,
         },
-      body: JSON.stringify({
-        model: ttsConfig.apiModel || "cosyvoice-v1",
-        input: {
-          text: text,
-          voice: ttsConfig.apiVoice || "longxiaochun",
-          format: ttsConfig.apiFormat || "wav",
-          sample_rate: 24000,
-        },
-      }),
+      body: JSON.stringify(reqBody),
     });
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      const errBody = await response.text();
+      console.error("[TTS] DashScope error:", response.status, errBody);
+      throw new Error("DashScope " + response.status + ": " + errBody.slice(0, 200));
     }
 
     const result = await response.json();
+    console.log("[TTS] DashScope response keys:", Object.keys(result));
     // DashScope 返回 { output: { audio: { url: "..." } } } 或 { output: { audio: { data: "base64..." } } }
     const audio = result?.output?.audio;
     if (audio?.url) {
