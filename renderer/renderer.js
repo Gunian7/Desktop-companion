@@ -752,23 +752,6 @@ function bindSpeechInput() {
   });
 }
 
-function extractSentenceChunks(buffer) {
-  const sentences = [];
-  let rest = buffer;
-
-  while (true) {
-    const index = rest.search(/[\uFF0C\u3002\uFF01\uFF1F!?\u3001\u2026\n]/);
-    if (index === -1) {
-      break;
-    }
-
-    sentences.push(rest.slice(0, index + 1));
-    rest = rest.slice(index + 1);
-  }
-
-  return { sentences, rest };
-}
-
 function getCoreModelParameterIds(coreModel) {
   if (!coreModel) {
     return [];
@@ -1135,7 +1118,7 @@ async function requestTTSViaAPI(text) {
         sample_rate: 24000,
       },
     };
-    console.log("[TTS] DashScope request:", JSON.stringify({ model: reqBody.model, voice: reqBody.input.voice, textLen: text.length }));
+    // TTS request sent
     try {
       const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer", {
         method: "POST",
@@ -1154,7 +1137,7 @@ async function requestTTSViaAPI(text) {
     }
 
     const result = await response.json();
-    console.log("[TTS] DashScope response keys:", Object.keys(result));
+    // TTS response received
     // DashScope 返回 { output: { audio: { url: "..." } } } 或 { output: { audio: { data: "base64..." } } }
     const audio = result?.output?.audio;
     if (audio?.url) {
@@ -1563,7 +1546,7 @@ async function loadVRMModel() {
   }
 
   startVRMRenderLoop();
-  console.log("[VRM] Done.");
+  // VRM model ready
 }
 
 function startVRMRenderLoop() {
