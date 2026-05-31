@@ -906,15 +906,14 @@ async function loadVRMModel() {
   const scene = new THREE.Scene();
   vrmState.scene = scene;
 
-  const fov = vrmConfig.cameraFov || 25;
   const camera = new THREE.PerspectiveCamera(
-    fov,
+    vrmConfig.cameraFov || 25,
     window.innerWidth / window.innerHeight,
     0.1,
     50
   );
   vrmState.camera = camera;
-  // 相机距离后面根据模型大小自动调整
+  // 相机距离和 FOV 后面根据模型大小自动调整
 
   // 天空/地面半球光（柔和自然光）
   const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x8899aa, 0.4);
@@ -1038,8 +1037,8 @@ async function loadVRMModel() {
   vrmState.baseRotation.set(0, 0, 0);
 
   // 自动调整相机距离（确保完整可见 + 15% 边距）
-  const fov = vrmConfig.cameraFov || 25;
-  const fovRad = (fov / 2) * Math.PI / 180;
+  const cameraFov = vrmConfig.cameraFov || 25;
+  const fovRad = (cameraFov / 2) * Math.PI / 180;
   const manualDist = vrmConfig.cameraDistance;
   const autoDist = (targetHeight / 2) / Math.tan(fovRad) * 1.15;
   const finalDist = manualDist || autoDist;
