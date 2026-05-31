@@ -876,7 +876,6 @@ async function loadVRMModel() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.sortObjects = true;
   vrmState.renderer = renderer;
   vrmState.canvas = vrmCanvas;
 
@@ -926,23 +925,25 @@ async function loadVRMModel() {
 
   scene.add(vrm.scene);
 
-  // 修复材质渲染问题
+  // 修复材质渲染问题：重置不合理的 renderOrder，修复透明/深度设置
   vrm.scene.traverse((child) => {
     if (child.isMesh && child.material) {
       const materials = Array.isArray(child.material)
         ? child.material
         : [child.material];
-      console.log("[VRM] Mesh:", child.name, "mats:", materials.length,
-        "visible:", child.visible, "renderOrder:", child.renderOrder);
       for (const mat of materials) {
-        mat.depthWrite = true;
+        if (mat.transparent) {
+          mat.depthWrite = false;
+          mat.renderOrder = 1;
+        } else {
+          mat.depthWrite = true;
+          mat.renderOrder = 0;
+        }
         mat.depthTest = true;
         mat.needsUpdate = true;
-        console.log("[VRM]   mat:", mat.name || mat.type,
-          "transparent:", mat.transparent,
-          "alphaTest:", mat.alphaTest,
-          "side:", mat.side);
       }
+      // 重置 mesh 的 renderOrder
+      child.renderOrder = 0;
     }
   });
 
