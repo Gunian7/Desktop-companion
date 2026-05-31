@@ -6,11 +6,10 @@ const { execFile } = require("child_process");
 const { pathToFileURL } = require("url");
 const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, protocol, net, globalShortcut, screen } = require("electron");
 
-// GPU / WebGL 兼容性配置
+// GPU / WebGL 兼容性配置 — 强制软件渲染绕过 D3D11 驱动崩溃
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
-app.commandLine.appendSwitch("enable-webgl");
-app.commandLine.appendSwitch("disable-gpu-sandbox");
-app.commandLine.appendSwitch("enable-unsafe-swiftshader");
+app.commandLine.appendSwitch("use-gl", "angle");
+app.commandLine.appendSwitch("use-angle", "swiftshader");
 
 const APP_ROOT = __dirname;
 const CONFIG_PATH = path.join(APP_ROOT, "config.json");
