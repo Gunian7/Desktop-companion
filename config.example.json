@@ -42,11 +42,11 @@
   },
   "vrm": {
     "modelPath": "../assets/vrm/model.vrm",
-    "scale": 10,
+    "scale": 1,
     "x": 0,
     "y": 0,
-    "cameraFov": 30,
-    "cameraDistance": 2.5,
+    "cameraFov": 25,
+    "cameraDistance": 3,
     "autoRotate": false,
     "idleAnimation": ""
   },

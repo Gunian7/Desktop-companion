@@ -882,29 +882,31 @@ async function loadVRMModel() {
   const scene = new THREE.Scene();
   vrmState.scene = scene;
 
+  const fov = vrmConfig.cameraFov || 25;
   const camera = new THREE.PerspectiveCamera(
-    vrmConfig.cameraFov || 30,
+    fov,
     window.innerWidth / window.innerHeight,
     0.1,
-    100
+    50
   );
-  camera.position.set(0, 0, vrmConfig.cameraDistance || 2.5);
+  const dist = vrmConfig.cameraDistance || 3;
+  camera.position.set(0, 0.6, dist);
   vrmState.camera = camera;
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
   scene.add(ambientLight);
 
-  const mainLight = new THREE.DirectionalLight(0xffffff, 0.8);
-  mainLight.position.set(1, 1, 1);
+  const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
+  mainLight.position.set(1, 2, 1);
   scene.add(mainLight);
 
-  const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
-  fillLight.position.set(-1, 0.5, 1);
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+  fillLight.position.set(-1, 0.3, 1);
   scene.add(fillLight);
 
-  const rimLight = new THREE.DirectionalLight(0xffffff, 0.2);
-  rimLight.position.set(0, -1, -1);
-  scene.add(rimLight);
+  const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
+  backLight.position.set(0, -0.5, -1);
+  scene.add(backLight);
 
   vrmState.clock = new THREE.Clock();
 
@@ -915,22 +917,43 @@ async function loadVRMModel() {
     vrmConfig.resolvedModelURL ||
     new URL(vrmConfig.modelPath, window.location.href).href;
 
+  console.log("[VRM] Loading:", modelUrl);
+
   const gltf = await loader.loadAsync(modelUrl);
   const vrm = gltf.userData.vrm;
   vrmState.vrm = vrm;
 
   scene.add(vrm.scene);
 
-  const scale = vrmConfig.scale || 12;
+  // 自动适配模型大小
+  const box = new THREE.Box3().setFromObject(vrm.scene);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  const modelHeight = size.y;
+  console.log("[VRM] Height:", modelHeight, "centerY:", center.y);
+
+  // 自适应缩放：让模型高度约为窗口的合适比例
+  const autoScale = 1.5 / Math.max(modelHeight, 0.01);
+  const scale = (vrmConfig.scale || 1) * autoScale;
+  console.log("[VRM] Scale:", scale);
+
   vrm.scene.scale.set(scale, scale, scale);
-  vrm.scene.position.set(vrmConfig.x || 0, vrmConfig.y || 0, 0);
+  vrm.scene.position.set(
+    vrmConfig.x || 0,
+    -(center.y - size.y / 2) * scale + (vrmConfig.y || 0),
+    vrmConfig.z || 0
+  );
 
-  const modelPos = vrm.scene.position;
-  camera.lookAt(modelPos.x, modelPos.y, modelPos.z);
+  camera.lookAt(0, 0.5 * autoScale, 0);
 
-  vrm.lookAt?.target && (vrm.lookAt.target = camera);
+  if (vrm.lookAt) {
+    vrm.lookAt.target = camera;
+  }
 
   startVRMRenderLoop();
+  console.log("[VRM] Done.");
 }
 
 function startVRMRenderLoop() {
