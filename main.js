@@ -252,8 +252,6 @@ function createWindow() {
   mainWindow.setAlwaysOnTop(true, topLevel);
   mainWindow.loadFile(path.join(APP_ROOT, "renderer", "index.html"));
 
-  mainWindow.webContents.openDevTools({ mode: "detach" });
-
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();

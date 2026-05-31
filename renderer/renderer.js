@@ -44,6 +44,9 @@ const vrmState = {
   clock: null,
   canvas: null,
   animationFrameId: 0,
+  mouseX: 0,
+  mouseY: 0,
+  mouseOnCanvas: false,
 };
 
 function showBubble(text) {
@@ -199,12 +202,23 @@ function addModelDragInteractivity() {
       target.style.cursor = state.hoverModel ? "move" : "default";
       updateMousePassthrough();
       updateModelDragRegion();
+
+      // VRM 视线跟踪
+      if (target.id === "vrm-canvas") {
+        const rect = target.getBoundingClientRect();
+        vrmState.mouseX = (event.clientX - rect.left) / rect.width;
+        vrmState.mouseY = (event.clientY - rect.top) / rect.height;
+        vrmState.mouseOnCanvas = true;
+      }
     });
 
     target.addEventListener("pointerleave", () => {
       state.hoverModel = false;
       target.style.cursor = "default";
       updateMousePassthrough();
+      if (target.id === "vrm-canvas") {
+        vrmState.mouseOnCanvas = false;
+      }
     });
   }
 } // end addModelDragInteractivity
@@ -1033,33 +1047,74 @@ function startVRMRenderLoop() {
   }
 
   const startTime = performance.now();
+  let prevExprName = "neutral";
+  let exprTransitionStart = 0;
+  let exprTarget = "";
 
   const tick = () => {
     if (!vrmState.vrm) return;
 
     const delta = vrmState.clock.getDelta();
     const elapsed = (performance.now() - startTime) / 1000;
+    const vrm = vrmState.vrm;
 
-    vrmState.vrm.update(delta);
+    vrm.update(delta);
 
-    // 呼吸式微动
-    const breathe = Math.sin(elapsed * 1.2) * 0.008;
-    vrmState.vrm.scene.position.y += breathe;
+    // === 自然待机动画 ===
+    // 多频叠加呼吸（避免单一 sin 的机器感）
+    const breathe =
+      Math.sin(elapsed * 1.1) * 0.006 +
+      Math.sin(elapsed * 2.3 + 1.7) * 0.003 +
+      Math.sin(elapsed * 0.5 + 3.1) * 0.002;
+    vrm.scene.position.y += breathe;
 
-    // 轻微左右摇摆
-    const sway = Math.sin(elapsed * 0.7) * 0.015;
-    vrmState.vrm.scene.rotation.y = sway;
+    // 身体微摆（多频叠加）
+    const sway =
+      Math.sin(elapsed * 0.6) * 0.012 +
+      Math.sin(elapsed * 1.4 + 2.1) * 0.006;
+    vrm.scene.rotation.y = sway;
 
-    // 随机表情（每 8 秒切换一次）
-    const exprIndex = Math.floor(elapsed / 8) % 5;
-    const expressions = ["happy", "neutral", "relaxed", "surprised", "neutral"];
-    if (vrmState.vrm.expressionManager) {
-      const em = vrmState.vrm.expressionManager;
-      const currentExpr = expressions[exprIndex];
-      for (const name of expressions) {
-        em.setValue(name, 0);
+    // 微微点头
+    const nod = Math.sin(elapsed * 0.35 + 5.2) * 0.004;
+    vrm.scene.rotation.x = nod;
+
+    // 微微歪头
+    const tilt = Math.sin(elapsed * 0.45 + 1.3) * 0.005;
+    vrm.scene.rotation.z = tilt;
+
+    // === 视线跟随鼠标 ===
+    if (vrmState.mouseOnCanvas && vrm.lookAt) {
+      const mx = (vrmState.mouseX - 0.5) * 0.4;
+      const my = -(vrmState.mouseY - 0.5) * 0.3;
+      vrm.lookAt.lookAtTarget.set(mx, my, 1);
+    }
+
+    // === 平滑表情过渡 ===
+    if (vrm.expressionManager) {
+      const em = vrm.expressionManager;
+      const exprCycle = ["happy", "neutral", "relaxed", "surprised", "neutral"];
+
+      // 每 6 秒选一个新表情
+      const cycleIdx = Math.floor(elapsed / 6) % exprCycle.length;
+      const newExpr = exprCycle[cycleIdx];
+
+      if (newExpr !== prevExprName) {
+        prevExprName = newExpr;
+        exprTransitionStart = elapsed;
+        exprTarget = newExpr;
       }
-      em.setValue(currentExpr, 0.15);
+
+      // 渐变过渡（2秒淡入淡出）
+      if (exprTarget) {
+        const t = Math.min((elapsed - exprTransitionStart) / 2, 1);
+        const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOutQuad
+
+        // 清除所有
+        for (const name of exprCycle) {
+          em.setValue(name, 0);
+        }
+        em.setValue(exprTarget, 0.12 * ease);
+      }
     }
 
     vrmState.renderer.render(vrmState.scene, vrmState.camera);
@@ -1089,20 +1144,38 @@ function stopVRMRender() {
 function startVRMLipSync(source) {
   stopLipSync();
 
+  const startTime = performance.now();
+
   const tick = () => {
     if (!source || source.paused || source.ended || !vrmState.vrm?.expressionManager) {
       if (vrmState.vrm?.expressionManager) {
         vrmState.vrm.expressionManager.setValue("aa", 0);
+        vrmState.vrm.expressionManager.setValue("ih", 0);
+        vrmState.vrm.expressionManager.setValue("oh", 0);
       }
       vrmState.animationFrameId = 0;
       return;
     }
 
-    const amp = 0.2 + Math.abs(Math.sin(source.currentTime * 14)) * 0.75;
+    const elapsed = (performance.now() - startTime) / 1000;
     const em = vrmState.vrm.expressionManager;
+
+    // 多频嘴型驱动（更自然）
+    const t = source.currentTime;
+    const amp =
+      0.15 +
+      Math.abs(Math.sin(t * 12)) * 0.5 +
+      Math.abs(Math.sin(t * 18 + 1.1)) * 0.2 +
+      Math.abs(Math.sin(t * 6 + 2.3)) * 0.1;
+
     em.setValue("aa", Math.min(amp, 1));
-    em.setValue("ih", Math.min(amp * 0.2, 1));
-    em.setValue("oh", Math.min(amp * 0.15, 1));
+    em.setValue("ih", Math.min(amp * 0.25, 1));
+    em.setValue("oh", Math.min(amp * 0.2, 1));
+
+    // 说话时微微点头
+    const nodDuringSpeech = Math.sin(elapsed * 3.5) * 0.003;
+    vrmState.vrm.scene.rotation.x += nodDuringSpeech;
+
     vrmState.animationFrameId = requestAnimationFrame(tick);
   };
 
