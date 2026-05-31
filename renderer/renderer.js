@@ -573,7 +573,9 @@ async function playAudioBuffer(arrayBuffer) {
 
 async function playAudioViaElement(arrayBuffer) {
   return new Promise((resolve, reject) => {
-    const blob = new Blob([arrayBuffer], { type: "audio/wav" });
+    const format = state.config?.tts?.apiFormat || "wav";
+    const mimeType = format === "mp3" ? "audio/mpeg" : "audio/wav";
+    const blob = new Blob([arrayBuffer], { type: mimeType });
     const audioURL = URL.createObjectURL(blob);
     const source = ttsAudio;
 
@@ -715,6 +717,31 @@ async function requestTTSLegacy(text) {
 async function requestTTSViaAPI(text) {
   const ttsConfig = state.config.tts;
   const apiType = ttsConfig.apiType || "openai";
+
+  if (apiType === "edge") {
+    // Microsoft Edge TTS — 免费，无需 API key
+    const voice = ttsConfig.apiVoice || "zh-CN-XiaoxiaoNeural";
+    const rate = ttsConfig.speed || 0;
+    const ssml = `<speak xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" version="1.0" xml:lang="zh-CN"><voice name="${voice}"><prosody rate="${rate}%" pitch="0%">${text}</prosody></voice></speak>`;
+
+    const response = await fetch(
+      "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/ssml+xml",
+          "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+          "User-Agent": "Mozilla/5.0",
+        },
+        body: ssml,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    return response.arrayBuffer();
+  }
 
   if (apiType === "dashscope") {
     // DashScope CosyVoice 原生格式
