@@ -293,6 +293,89 @@ async function stopMediaStream() {
   }
 }
 
+// ===== Web Speech API 语音识别（Chrome 内置，无需 GPT-SoVITS）=====
+
+function setupWebSpeechInput() {
+  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!Ctor) return;
+
+  let recognition = null;
+
+  micBtn.addEventListener("click", () => {
+    if (state.isBusy) return;
+
+    if (state.isListening) {
+      if (recognition) recognition.stop();
+      return;
+    }
+
+    try {
+      recognition = new Ctor();
+      recognition.lang = "zh-CN";
+      recognition.continuous = false;
+      recognition.interimResults = true;
+
+      state.isListening = true;
+      micBtn.classList.add("is-listening");
+      showBubble("我在听...");
+
+      if ((state.config?.modelType || "live2d") === "image") {
+        avatarImage.classList.remove("avatar-idle");
+        avatarImage.classList.add("avatar-listening");
+      }
+
+      let finalText = "";
+
+      recognition.onresult = (event) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const r = event.results[i];
+          if (r.isFinal) finalText += r[0].transcript;
+          else interim += r[0].transcript;
+        }
+        showBubble(finalText + interim || "我在听...");
+      };
+
+      recognition.onerror = (event) => {
+        console.error("ASR error:", event.error);
+        cleanup();
+        if (event.error === "no-speech") {
+          showBubble("没有听到声音，再试一次？");
+          hideBubble(2000);
+        } else if (event.error !== "aborted") {
+          showError("语音识别失败：" + event.error);
+        }
+      };
+
+      recognition.onend = () => {
+        cleanup();
+        const text = finalText.trim();
+        if (text) {
+          userInput.value = "";
+          showBubble(text);
+          void handleUserInput(text);
+        }
+      };
+
+      recognition.start();
+    } catch (err) {
+      cleanup();
+      showError("无法启动语音识别：" + (err.message || err));
+    }
+  });
+
+  function cleanup() {
+    state.isListening = false;
+    micBtn.classList.remove("is-listening");
+    avatarImage.classList.remove("avatar-listening");
+    if ((state.config?.modelType || "live2d") === "image") {
+      avatarImage.classList.add("avatar-idle");
+    }
+  }
+}
+
+// ===== 旧版 ASR（GPT-SoVITS FunASR，回退用）=====
+
 async function setupLocalSpeechRecorder() {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
     micBtn.title = "当前环境不支持本地录音";
@@ -1555,9 +1638,15 @@ async function bootstrap() {
 
     addInputInteractivity();
     addModelDragInteractivity();
-    setupLocalSpeechRecorder();
     bindInputEvents();
-    bindSpeechInput();
+
+    // 优先使用 Web Speech API（Chrome 内置），否则回退到本地 ASR
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) {
+      setupWebSpeechInput();
+    } else {
+      setupLocalSpeechRecorder();
+      bindSpeechInput();
+    }
     await loadModel();
 
     window.addEventListener("resize", () => {
