@@ -340,11 +340,23 @@ function bindSpeechInput() {
 
       mediaRecorder.addEventListener("start", () => {
         setListening(true);
-        showBubble("\u5f17\u6d1b\u6d1b\u5728\u542c...");
+        showBubble("我在听...");
+
+        // 图片模式：倾听动画
+        if ((state.config?.modelType || "live2d") === "image") {
+          avatarImage.classList.remove("avatar-idle");
+          avatarImage.classList.add("avatar-listening");
+        }
       });
 
       mediaRecorder.addEventListener("stop", async () => {
         setListening(false);
+
+        // 图片模式：恢复待机
+        avatarImage.classList.remove("avatar-listening");
+        if ((state.config?.modelType || "live2d") === "image") {
+          avatarImage.classList.add("avatar-idle");
+        }
 
         const chunks = state.recordingChunks.slice();
         state.recordingChunks = [];
