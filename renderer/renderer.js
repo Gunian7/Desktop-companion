@@ -457,11 +457,11 @@ function startSyntheticLipSync(source) {
   }
 
   if (modelType === "image") {
-    avatarImage.classList.remove("avatar-breathe");
-    avatarImage.classList.add("avatar-speaking");
+    avatarImage.classList.remove("avatar-idle");
+    avatarImage.classList.add("avatar-talking");
     source.addEventListener("ended", () => {
-      avatarImage.classList.remove("avatar-speaking");
-      avatarImage.classList.add("avatar-breathe");
+      avatarImage.classList.remove("avatar-talking");
+      avatarImage.classList.add("avatar-idle");
     }, { once: true });
     return;
   }
@@ -1228,11 +1228,11 @@ function loadImageAvatar() {
   avatarImage.src = src;
 
   if (imgConfig.idleAnimation !== false) {
-    avatarImage.classList.add("avatar-breathe");
+    avatarImage.classList.add("avatar-idle");
   }
 
-  // 用 max-width 控制大小，避免与 CSS animation transform 冲突
-  const pct = Math.round((imgConfig.scale || 0.8) * 100);
+  // 缩放由 CSS 的 max-width/max-height 控制
+  const pct = Math.round((imgConfig.scale || 0.8) * 90);
   avatarImage.style.maxWidth = pct + "%";
   avatarImage.style.maxHeight = pct + "%";
 }
