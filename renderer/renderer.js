@@ -1036,11 +1036,16 @@ async function loadVRMModel() {
   vrmState.basePosition.set(baseX, baseY, baseZ);
   vrmState.baseRotation.set(0, 0, 0);
 
-  // 自动调整相机距离（确保完整可见 + 15% 边距）
+  // 自动调整相机距离（确保宽高都完整可见 + 15% 边距）
   const cameraFov = vrmConfig.cameraFov || 25;
   const fovRad = (cameraFov / 2) * Math.PI / 180;
   const manualDist = vrmConfig.cameraDistance;
-  const autoDist = (targetHeight / 2) / Math.tan(fovRad) * 1.15;
+  const aspect = window.innerWidth / window.innerHeight;
+  const modelW = size.x * finalScale;
+  const modelH = size.y * finalScale;
+  const distForH = (modelH / 2) / Math.tan(fovRad);
+  const distForW = (modelW / 2) / Math.tan(fovRad) / aspect;
+  const autoDist = Math.max(distForH, distForW) * 1.15;
   const finalDist = manualDist || autoDist;
 
   const camY = modelCenterY;
