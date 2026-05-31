@@ -940,15 +940,12 @@ async function loadVRMModel() {
 
       if (mat.isShaderMaterial) {
         const newMat = new THREE.MeshBasicMaterial();
-        if (mat.uniforms?.map?.value) {
-          newMat.map = mat.uniforms.map.value;
-        }
-        if (mat.uniforms?.u_diffuseTexture?.value) {
-          newMat.map = mat.uniforms.u_diffuseTexture.value;
-        }
+        // 暂不使用纹理（测试是否为显存问题）
         const diffuseColor = mat.uniforms?.u_diffuseColor?.value;
         if (diffuseColor && typeof diffuseColor.r !== 'undefined') {
           newMat.color.setRGB(diffuseColor.r, diffuseColor.g, diffuseColor.b);
+        } else {
+          newMat.color.setHex(0xcccccc);
         }
         newMat.transparent = mat.transparent;
         newMat.depthWrite = mat.transparent ? false : true;
