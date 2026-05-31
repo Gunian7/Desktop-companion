@@ -930,8 +930,19 @@ async function loadVRMModel() {
 
   // 替换 ShaderMaterial，丢弃描边材质减少绘制调用
   let replacedCount = 0;
+  let skippedHighPoly = 0;
   vrm.scene.traverse((child) => {
     if (child.isMesh && child.material) {
+      // 跳过超过 3000 顶点的高面数网格（GPU 显存不足）
+      const geo = child.geometry;
+      const vertCount = geo.attributes.position ? geo.attributes.position.count : 0;
+      if (vertCount > 3000) {
+        child.visible = false;
+        skippedHighPoly++;
+        console.log("[VRM] Skip high-poly mesh:", child.name, vertCount, "verts");
+        return;
+      }
+
       const mats = Array.isArray(child.material)
         ? child.material
         : [child.material];
@@ -940,12 +951,15 @@ async function loadVRMModel() {
 
       if (mat.isShaderMaterial) {
         const newMat = new THREE.MeshBasicMaterial();
-        // 暂不使用纹理（测试是否为显存问题）
+        if (mat.uniforms?.map?.value) {
+          newMat.map = mat.uniforms.map.value;
+        }
+        if (mat.uniforms?.u_diffuseTexture?.value) {
+          newMat.map = mat.uniforms.u_diffuseTexture.value;
+        }
         const diffuseColor = mat.uniforms?.u_diffuseColor?.value;
         if (diffuseColor && typeof diffuseColor.r !== 'undefined') {
           newMat.color.setRGB(diffuseColor.r, diffuseColor.g, diffuseColor.b);
-        } else {
-          newMat.color.setHex(0xcccccc);
         }
         newMat.transparent = mat.transparent;
         newMat.depthWrite = mat.transparent ? false : true;
@@ -965,7 +979,7 @@ async function loadVRMModel() {
       child.renderOrder = 0;
     }
   });
-  console.log("[VRM] Replaced", replacedCount, "ShaderMaterials, kept 1 mat per mesh.");
+  console.log("[VRM] Replaced", replacedCount, "materials, skipped", skippedHighPoly, "high-poly meshes.");
 
   // 自动适配模型大小
   const box = new THREE.Box3().setFromObject(vrm.scene);
