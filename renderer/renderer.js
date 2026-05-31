@@ -293,6 +293,128 @@ async function stopMediaStream() {
   }
 }
 
+// ===== 阿里云 NLS REST ASR（一句话识别，简单稳定）=====
+
+function setupNlsRestASR() {
+  if (!navigator.mediaDevices?.getUserMedia) { micBtn.title = "不支持录音"; return; }
+
+  let mediaRecorder = null;
+  let stream = null;
+  let chunks = [];
+
+  micBtn.addEventListener("click", async () => {
+    if (state.isBusy) return;
+
+    if (state.isListening) {
+      stopRecording();
+      return;
+    }
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+
+      mediaRecorder.onstart = () => {
+        state.isListening = true;
+        micBtn.classList.add("is-listening");
+        showBubble("我在听...");
+        if ((state.config?.modelType || "live2d") === "image") {
+          avatarImage.classList.remove("avatar-idle");
+          avatarImage.classList.add("avatar-listening");
+        }
+      };
+
+      mediaRecorder.start();
+    } catch (err) {
+      stopRecording();
+      showError("麦克风启动失败");
+    }
+  });
+
+  async function stopRecording() {
+    state.isListening = false;
+    micBtn.classList.remove("is-listening");
+    avatarImage.classList.remove("avatar-listening");
+    if ((state.config?.modelType || "live2d") === "image") {
+      avatarImage.classList.add("avatar-idle");
+    }
+
+    try { if (mediaRecorder?.state === "recording") mediaRecorder.stop(); } catch {}
+    try { if (stream) { stream.getTracks().forEach((t) => t.stop()); } } catch {}
+    mediaRecorder = null;
+    stream = null;
+
+    await new Promise((r) => setTimeout(r, 300));
+    if (chunks.length === 0) return;
+
+    try {
+      const blob = new Blob(chunks, { type: "audio/webm" });
+      const arrayBuffer = await blob.arrayBuffer();
+      const audioCtx = new AudioContext();
+
+      let audioBuffer;
+      try { audioBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0)); }
+      catch { audioCtx.close(); showError("音频解码失败"); return; }
+
+      // 重采样到 16kHz mono PCM
+      const targetRate = 16000;
+      const offline = new OfflineAudioContext(1, audioBuffer.duration * targetRate, targetRate);
+      const src = offline.createBufferSource();
+      src.buffer = audioBuffer;
+      src.connect(offline.destination);
+      src.start();
+      const rendered = await offline.startRendering();
+      audioCtx.close();
+
+      // Float32 → Int16
+      const pcm = rendered.getChannelData(0);
+      const int16 = new Int16Array(pcm.length);
+      for (let i = 0; i < pcm.length; i++) {
+        int16[i] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * 32767)));
+      }
+
+      // 调用 NLS REST API
+      const asrConfig = state.config.asr || {};
+      const params = new URLSearchParams({
+        appkey: asrConfig.appkey || "",
+        format: "pcm",
+        sample_rate: String(targetRate),
+        enable_punctuation_prediction: "true",
+        enable_intermediate_result: "false",
+      });
+
+      const response = await fetch(
+        `https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/asr?${params}`,
+        {
+          method: "POST",
+          headers: {
+            "X-NLS-Token": asrConfig.token || state.config.llm?.apiKey || "",
+            "Content-Type": "application/octet-stream",
+          },
+          body: int16.buffer,
+        }
+      );
+
+      const result = await response.json();
+      console.log("ASR result:", result);
+
+      if (result.status === 200 && result.result) {
+        userInput.value = "";
+        showBubble(result.result);
+        void handleUserInput(result.result);
+      } else {
+        showError("识别失败：" + (result.status_text || result.status || "未知"));
+      }
+    } catch (err) {
+      console.error("ASR error:", err);
+      showError("语音识别失败：" + (err.message || err));
+    }
+  }
+}
+
 // ===== 阿里云 DashScope Paraformer 实时 WebSocket ASR =====
 
 function setupDashScopeRealtimeASR() {
@@ -1868,8 +1990,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    setupLocalSpeechRecorder();
-    bindSpeechInput();
+    setupNlsRestASR();
     await loadModel();
 
     window.addEventListener("resize", () => {
