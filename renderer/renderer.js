@@ -399,7 +399,7 @@ function setupNlsRestASR() {
       );
 
       const result = await response.json();
-      console.log("ASR result:", result);
+      console.error("[NLS ASR]", response.status, JSON.stringify(result));
 
       if (result.status === 200 && result.result) {
         userInput.value = "";
