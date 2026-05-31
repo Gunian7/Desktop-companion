@@ -876,6 +876,7 @@ async function loadVRMModel() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.sortObjects = true;
   vrmState.renderer = renderer;
   vrmState.canvas = vrmCanvas;
 
@@ -924,6 +925,26 @@ async function loadVRMModel() {
   vrmState.vrm = vrm;
 
   scene.add(vrm.scene);
+
+  // 修复材质渲染问题
+  vrm.scene.traverse((child) => {
+    if (child.isMesh && child.material) {
+      const materials = Array.isArray(child.material)
+        ? child.material
+        : [child.material];
+      console.log("[VRM] Mesh:", child.name, "mats:", materials.length,
+        "visible:", child.visible, "renderOrder:", child.renderOrder);
+      for (const mat of materials) {
+        mat.depthWrite = true;
+        mat.depthTest = true;
+        mat.needsUpdate = true;
+        console.log("[VRM]   mat:", mat.name || mat.type,
+          "transparent:", mat.transparent,
+          "alphaTest:", mat.alphaTest,
+          "side:", mat.side);
+      }
+    }
+  });
 
   // 自动适配模型大小
   const box = new THREE.Box3().setFromObject(vrm.scene);
