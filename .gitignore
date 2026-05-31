@@ -12,6 +12,7 @@ config.local.json
 # 第三方模型资源（仅保留 Live2D 示例和 Vendor SDK，其余不提交）
 assets/vrm/
 assets/鸣潮*/
+assets/image/
 
 # 系统文件
 Thumbs.db
