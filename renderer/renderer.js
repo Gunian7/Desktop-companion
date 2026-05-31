@@ -1733,6 +1733,134 @@ async function loadModel() {
   tryStartIdleMotion();
 }
 
+// ===== Qwen ASR（qwen3-asr-flash via MultiModalConversation API）=====
+
+function setupQwenASR() {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    micBtn.title = "不支持录音"; return;
+  }
+
+  let mediaRecorder = null;
+  let stream = null;
+  let chunks = [];
+
+  micBtn.addEventListener("click", async () => {
+    if (state.isBusy) return;
+
+    if (state.isListening) {
+      stopRecording();
+      return;
+    }
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+      mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+      chunks = [];
+
+      mediaRecorder.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+
+      mediaRecorder.onstart = () => {
+        state.isListening = true;
+        micBtn.classList.add("is-listening");
+        showBubble("我在听...");
+        if ((state.config?.modelType || "live2d") === "image") {
+          avatarImage.classList.remove("avatar-idle");
+          avatarImage.classList.add("avatar-listening");
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        state.isListening = false;
+        micBtn.classList.remove("is-listening");
+        avatarImage.classList.remove("avatar-listening");
+        if ((state.config?.modelType || "live2d") === "image") {
+          avatarImage.classList.add("avatar-idle");
+        }
+
+        try { if (stream) { stream.getTracks().forEach((t) => t.stop()); } } catch {}
+        stream = null;
+        mediaRecorder = null;
+
+        if (!chunks.length) { hideBubble(); return; }
+
+        try {
+          const blob = new Blob(chunks, { type: mime || "audio/webm" });
+          const base64 = await blobToBase64(blob);
+          await transcribeWithQwen(base64, mime || "audio/webm");
+        } catch (err) {
+          console.error("ASR failed:", err);
+          showError("语音识别失败：" + (err.message || err));
+        }
+      };
+
+      mediaRecorder.start();
+    } catch (err) {
+      stopRecording();
+      showError("麦克风启动失败");
+    }
+  });
+
+  async function blobToBase64(blob) {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 4096) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 4096, bytes.length)));
+    }
+    return btoa(binary);
+  }
+
+  async function transcribeWithQwen(audioBase64, mime) {
+    const llmConfig = state.config.llm;
+    showBubble("识别中...");
+
+    const resp = await fetch(
+      "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + llmConfig.apiKey,
+        },
+        body: JSON.stringify({
+          model: "qwen3-asr-flash",
+          input: {
+            messages: [{
+              role: "user",
+              content: [{ audio: "data:" + mime + ";base64," + audioBase64 }],
+            }],
+          },
+          parameters: {
+            asr_options: { language: "zh" },
+          },
+        }),
+      }
+    );
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error("ASR " + resp.status + ": " + errText.slice(0, 150));
+    }
+
+    const result = await resp.json();
+    const text = result?.output?.choices?.[0]?.message?.content?.[0]?.text?.trim();
+
+    if (text) {
+      userInput.value = "";
+      showBubble(text);
+      void handleUserInput(text);
+    } else {
+      showBubble("没听清，再试一次？");
+      hideBubble(2000);
+    }
+  }
+
+  function stopRecording() {
+    try { if (mediaRecorder?.state === "recording") mediaRecorder.stop(); } catch {}
+  }
+}
+
 async function handleUserInput(userText) {
   if (state.isBusy) {
     return;
@@ -1850,8 +1978,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    // 语音输入暂时禁用，使用文本输入
-    micBtn.style.display = "none";
+    setupQwenASR();
     await loadModel();
 
     window.addEventListener("resize", () => {
