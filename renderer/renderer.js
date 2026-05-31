@@ -43,10 +43,13 @@ const vrmState = {
   vrm: null,
   clock: null,
   canvas: null,
-  animationFrameId: 0,
+  renderLoopId: 0,
+  lipSyncId: 0,
   mouseX: 0,
   mouseY: 0,
   mouseOnCanvas: false,
+  basePosition: new THREE.Vector3(),
+  baseRotation: new THREE.Euler(),
 };
 
 function showBubble(text) {
@@ -412,9 +415,13 @@ function setMouthValue(value) {
 }
 
 function stopLipSync() {
-  if (vrmState.animationFrameId) {
-    cancelAnimationFrame(vrmState.animationFrameId);
-    vrmState.animationFrameId = 0;
+  if (vrmState.lipSyncId) {
+    cancelAnimationFrame(vrmState.lipSyncId);
+    vrmState.lipSyncId = 0;
+  }
+
+  if (vrmState.renderLoopId) {
+    // 渲染循环不停止，只清嘴型
   }
 
   if (vrmState.vrm?.expressionManager) {
@@ -906,9 +913,8 @@ async function loadVRMModel() {
     0.1,
     50
   );
-  const dist = vrmConfig.cameraDistance || 3;
-  camera.position.set(0, 0.6, dist);
   vrmState.camera = camera;
+  // 相机距离后面根据模型大小自动调整
 
   // 天空/地面半球光（柔和自然光）
   const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x8899aa, 0.4);
@@ -1022,15 +1028,24 @@ async function loadVRMModel() {
   // 脚底对齐原点，模型居中
   const feetY = -(center.y - size.y / 2) * finalScale;
   const modelCenterY = targetHeight * (vrmConfig.scale || 1) / 2;
-  vrm.scene.position.set(
-    vrmConfig.x || 0,
-    feetY + (vrmConfig.y || 0),
-    vrmConfig.z || 0
-  );
+  const baseY = feetY + (vrmConfig.y || 0);
+  const baseX = vrmConfig.x || 0;
+  const baseZ = vrmConfig.z || 0;
+  vrm.scene.position.set(baseX, baseY, baseZ);
 
-  // 相机对准模型中部
+  // 保存基准位姿（动画偏移基于此）
+  vrmState.basePosition.set(baseX, baseY, baseZ);
+  vrmState.baseRotation.set(0, 0, 0);
+
+  // 自动调整相机距离（确保完整可见 + 15% 边距）
+  const fov = vrmConfig.cameraFov || 25;
+  const fovRad = (fov / 2) * Math.PI / 180;
+  const manualDist = vrmConfig.cameraDistance;
+  const autoDist = (targetHeight / 2) / Math.tan(fovRad) * 1.15;
+  const finalDist = manualDist || autoDist;
+
   const camY = modelCenterY;
-  camera.position.set(0, camY, dist);
+  camera.position.set(0, camY, finalDist);
   camera.lookAt(0, camY, 0);
 
   if (vrm.lookAt) {
@@ -1042,8 +1057,8 @@ async function loadVRMModel() {
 }
 
 function startVRMRenderLoop() {
-  if (vrmState.animationFrameId) {
-    cancelAnimationFrame(vrmState.animationFrameId);
+  if (vrmState.renderLoopId) {
+    cancelAnimationFrame(vrmState.renderLoopId);
   }
 
   const startTime = performance.now();
@@ -1054,39 +1069,36 @@ function startVRMRenderLoop() {
   const tick = () => {
     if (!vrmState.vrm) return;
 
-    const delta = vrmState.clock.getDelta();
+    const delta = Math.min(vrmState.clock.getDelta(), 0.1);
     const elapsed = (performance.now() - startTime) / 1000;
     const vrm = vrmState.vrm;
+    const bp = vrmState.basePosition;
+    const br = vrmState.baseRotation;
 
     vrm.update(delta);
 
-    // === 自然待机动画 ===
-    // 多频叠加呼吸（避免单一 sin 的机器感）
+    // === 待机动画（基于基准位姿偏移） ===
     const breathe =
-      Math.sin(elapsed * 1.1) * 0.006 +
-      Math.sin(elapsed * 2.3 + 1.7) * 0.003 +
-      Math.sin(elapsed * 0.5 + 3.1) * 0.002;
-    vrm.scene.position.y += breathe;
+      Math.sin(elapsed * 1.3) * 0.025 +
+      Math.sin(elapsed * 2.5 + 1.7) * 0.012;
 
-    // 身体微摆（多频叠加）
-    const sway =
-      Math.sin(elapsed * 0.6) * 0.012 +
-      Math.sin(elapsed * 1.4 + 2.1) * 0.006;
-    vrm.scene.rotation.y = sway;
+    vrm.scene.position.set(
+      bp.x,
+      bp.y + breathe,
+      bp.z
+    );
 
-    // 微微点头
-    const nod = Math.sin(elapsed * 0.35 + 5.2) * 0.004;
-    vrm.scene.rotation.x = nod;
-
-    // 微微歪头
-    const tilt = Math.sin(elapsed * 0.45 + 1.3) * 0.005;
-    vrm.scene.rotation.z = tilt;
+    vrm.scene.rotation.set(
+      br.x + Math.sin(elapsed * 0.35 + 5.2) * 0.03,
+      br.y + Math.sin(elapsed * 0.7) * 0.04 + Math.sin(elapsed * 1.6 + 2.1) * 0.02,
+      br.z + Math.sin(elapsed * 0.45 + 1.3) * 0.025
+    );
 
     // === 视线跟随鼠标 ===
     if (vrmState.mouseOnCanvas && vrm.lookAt) {
-      const mx = (vrmState.mouseX - 0.5) * 0.4;
-      const my = -(vrmState.mouseY - 0.5) * 0.3;
-      vrm.lookAt.lookAtTarget.set(mx, my, 1);
+      const mx = (vrmState.mouseX - 0.5) * 0.5;
+      const my = -(vrmState.mouseY - 0.5) * 0.4;
+      vrm.lookAt.lookAtTarget.set(mx, my, 1.5);
     }
 
     // === 平滑表情过渡 ===
@@ -1094,7 +1106,6 @@ function startVRMRenderLoop() {
       const em = vrm.expressionManager;
       const exprCycle = ["happy", "neutral", "relaxed", "surprised", "neutral"];
 
-      // 每 6 秒选一个新表情
       const cycleIdx = Math.floor(elapsed / 6) % exprCycle.length;
       const newExpr = exprCycle[cycleIdx];
 
@@ -1104,21 +1115,19 @@ function startVRMRenderLoop() {
         exprTarget = newExpr;
       }
 
-      // 渐变过渡（2秒淡入淡出）
       if (exprTarget) {
         const t = Math.min((elapsed - exprTransitionStart) / 2, 1);
-        const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOutQuad
+        const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
 
-        // 清除所有
         for (const name of exprCycle) {
           em.setValue(name, 0);
         }
-        em.setValue(exprTarget, 0.12 * ease);
+        em.setValue(exprTarget, 0.2 * ease);
       }
     }
 
     vrmState.renderer.render(vrmState.scene, vrmState.camera);
-    vrmState.animationFrameId = requestAnimationFrame(tick);
+    vrmState.renderLoopId = requestAnimationFrame(tick);
   };
 
   tick();
@@ -1153,14 +1162,13 @@ function startVRMLipSync(source) {
         vrmState.vrm.expressionManager.setValue("ih", 0);
         vrmState.vrm.expressionManager.setValue("oh", 0);
       }
-      vrmState.animationFrameId = 0;
+      vrmState.lipSyncId = 0;
       return;
     }
 
     const elapsed = (performance.now() - startTime) / 1000;
     const em = vrmState.vrm.expressionManager;
 
-    // 多频嘴型驱动（更自然）
     const t = source.currentTime;
     const amp =
       0.15 +
@@ -1172,11 +1180,7 @@ function startVRMLipSync(source) {
     em.setValue("ih", Math.min(amp * 0.25, 1));
     em.setValue("oh", Math.min(amp * 0.2, 1));
 
-    // 说话时微微点头
-    const nodDuringSpeech = Math.sin(elapsed * 3.5) * 0.003;
-    vrmState.vrm.scene.rotation.x += nodDuringSpeech;
-
-    vrmState.animationFrameId = requestAnimationFrame(tick);
+    vrmState.lipSyncId = requestAnimationFrame(tick);
   };
 
   tick();
