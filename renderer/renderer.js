@@ -315,11 +315,28 @@ function setupDashScopeRealtimeASR() {
 
     try {
       // 1. 获取麦克风（用系统默认采样率）
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
       // 2. 连接 WebSocket
       ws = new WebSocket("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
       ws.binaryType = "arraybuffer";
+      let taskStarted = false;
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.header?.event === "task-started") taskStarted = true;
+          else if (msg.header?.event === "result-generated") {
+            const text = msg.payload?.output?.sentence?.text || "";
+            if (msg.payload?.output?.sentence?.end_time) {
+              finalText += text;
+              interimText = "";
+              showBubble(finalText || "我在听...");
+            } else {
+              interimText = text;
+              showBubble(finalText + interimText || "我在听...");
+            }
+          } else if (msg.header?.event === "task-failed") { showError("识别失败"); }
+        } catch {}
+      };
 
       await new Promise((resolve, reject) => {
         ws.onopen = resolve;
@@ -327,72 +344,31 @@ function setupDashScopeRealtimeASR() {
         setTimeout(() => reject(new Error("WebSocket 连接超时")), 8000);
       });
 
-      // 3. 创建音频上下文（系统默认采样率）
-      audioCtx = new AudioContext();
-      const actualSampleRate = audioCtx.sampleRate;
-
-      // 4. 发送 run-task
+      // 3. 发送 run-task（用 Opus 格式，省去 PCM 转换）
       ws.send(JSON.stringify({
         header: { action: "run-task", task_id: Date.now().toString(), streaming: "duplex" },
         payload: {
           task_group: "audio", task: "asr", function: "recognition",
           model: "paraformer-realtime-v2",
-          parameters: {
-            format: "pcm", sample_rate: actualSampleRate,
-            language_hints: ["zh"],
-            punctuation_prediction_enabled: true,
-            max_sentence_silence: 800,
-          },
+          parameters: { format: "opus", sample_rate: 16000, language_hints: ["zh"], punctuation_prediction_enabled: true },
           input: {},
         },
       }));
 
-      // 5. 等待 task-started
-      await new Promise((resolve) => {
-        ws.onmessage = (e) => {
-          try {
-            const msg = JSON.parse(e.data);
-            if (msg.header?.event === "task-started") resolve();
-          } catch {}
-        };
+      await new Promise((resolve, reject) => {
+        const check = setInterval(() => { if (taskStarted) { clearInterval(check); resolve(); } }, 50);
+        setTimeout(() => { clearInterval(check); reject(new Error("task 未启动")); }, 5000);
       });
 
-      // 6. 开始录音并流式发送 PCM
-      const source = audioCtx.createMediaStreamSource(stream);
-      processor = audioCtx.createScriptProcessor(4096, 1, 1);
-
-      processor.onaudioprocess = (e) => {
-        if (ws?.readyState !== WebSocket.OPEN) return;
-        let floatData = e.inputBuffer.getChannelData(0);
-        const int16 = new Int16Array(floatData.length);
-        for (let i = 0; i < floatData.length; i++) {
-          int16[i] = Math.max(-32768, Math.min(32767, Math.round(floatData[i] * 32767)));
+      // 4. MediaRecorder 直录 Opus → WebSocket（不用 AudioContext）
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      state.mediaRecorder = mediaRecorder;
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
+          e.data.arrayBuffer().then((buf) => ws.send(buf));
         }
-        ws.send(int16.buffer);
       };
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
-
-      // 接收识别结果
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.header?.event === "result-generated") {
-            const text = msg.payload?.output?.sentence?.text || "";
-            if (msg.payload?.output?.sentence?.end_time) {
-              finalText += text;
-              interimText = "";
-              showBubble(finalText);
-            } else {
-              interimText = text;
-              showBubble(finalText + interimText || "我在听...");
-            }
-          } else if (msg.header?.event === "task-failed") {
-            console.error("ASR task failed:", msg);
-            showError("语音识别失败");
-          }
-        } catch {}
-      };
+      mediaRecorder.start(200); // 200ms 一片
 
       // UI 状态
       state.isListening = true;
@@ -418,11 +394,8 @@ function setupDashScopeRealtimeASR() {
       }
     } catch {}
 
-    try { if (processor) { processor.disconnect(); } } catch {}
-    processor = null;
-
-    try { if (audioCtx) { audioCtx.close(); } } catch {}
-    audioCtx = null;
+    try { if (state.mediaRecorder?.state === "recording") state.mediaRecorder.stop(); } catch {}
+    state.mediaRecorder = null;
 
     try { if (stream) { stream.getTracks().forEach((t) => t.stop()); } } catch {}
     stream = null;
