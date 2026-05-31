@@ -1,10 +1,10 @@
 const fs = require("fs");
 const path = require("path");
-const crypto = require("crypto");
 const os = require("os");
 const { promisify } = require("util");
 const { execFile } = require("child_process");
 const { pathToFileURL } = require("url");
+const { WebSocket } = require("ws");
 const { app, BrowserWindow, session, Menu, Tray, ipcMain, nativeImage, protocol, net, globalShortcut, screen } = require("electron");
 
 // GPU / WebGL 兼容性配置 — 强制软件渲染绕过 D3D11 驱动崩溃
@@ -358,78 +358,109 @@ ipcMain.handle("transcribe-audio", async (_event, payload) => {
   }
 });
 
-// ===== 阿里云 NLS Token 生成 =====
+// ===== DashScope Paraformer 实时 ASR WebSocket（main 进程）=====
+// 在 main 进程管理 WebSocket，因为浏览器原生 WebSocket 不支持自定义 header
+// DashScope API 要求 Authorization: Bearer <key> 在握手阶段传入
 
-function generateNlsToken(accessKeyId, accessKeySecret) {
-  const params = {
-    AccessKeyId: accessKeyId,
-    Action: "CreateToken",
-    Format: "JSON",
-    RegionId: "cn-hangzhou",
-    SignatureMethod: "HMAC-SHA1",
-    SignatureNonce: Math.random().toString(36).substring(2, 15),
-    SignatureVersion: "1.0",
-    Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-    Version: "2019-02-28",
-  };
+const asrConnections = new Map();
 
-  const sortedKeys = Object.keys(params).sort();
-  const canonicalQuery = sortedKeys
-    .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(params[k]))
-    .join("&");
-
-  const stringToSign = "GET&" + encodeURIComponent("/") + "&" + encodeURIComponent(canonicalQuery);
-  const key = accessKeySecret + "&";
-  const signature = crypto.createHmac("sha1", key).update(stringToSign).digest("base64");
-
-  return `https://nls-meta.cn-shanghai.aliyuncs.com/?${canonicalQuery}&Signature=${encodeURIComponent(signature)}`;
-}
-
-ipcMain.handle("nls-get-token", async () => {
+ipcMain.handle("asr-start", async (event) => {
   try {
     const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-    const asr = config.asr || {};
-    if (!asr.appkey || !asr.accessKeyId || !asr.accessKeySecret) {
-      return { ok: false, error: "配置缺少 appkey/accessKeyId/accessKeySecret" };
-    }
-    const url = generateNlsToken(asr.accessKeyId, asr.accessKeySecret);
-    const resp = await net.fetch(url);
-    const data = await resp.json();
-    if (data.Token && data.Token.Id) {
-      return { ok: true, token: data.Token.Id, appkey: asr.appkey };
-    }
-    return { ok: false, error: JSON.stringify(data) };
+    const apiKey = config.llm?.apiKey;
+    if (!apiKey) return { ok: false, error: "未配置 API Key" };
+
+    const connId = String(Date.now());
+    const win = BrowserWindow.fromWebContents(event.sender);
+
+    return new Promise((resolve) => {
+      const ws = new WebSocket("wss://dashscope.aliyuncs.com/api-ws/v1/inference", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+
+      let resolved = false;
+      const done = (result) => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
+        resolve(result);
+      };
+
+      ws.on("open", () => {
+        ws.send(JSON.stringify({
+          header: { action: "run-task", task_id: connId, streaming: "duplex" },
+          payload: {
+            task_group: "audio", task: "asr", function: "recognition",
+            model: "paraformer-realtime-v2",
+            parameters: { format: "opus", sample_rate: 16000, language_hints: ["zh"], punctuation_prediction_enabled: true },
+            input: {},
+          },
+        }));
+      });
+
+      ws.on("message", (data) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (!resolved) {
+            if (msg.header?.event === "task-started") {
+              asrConnections.set(connId, { ws, win });
+              done({ ok: true, connId });
+            } else if (msg.header?.event === "task-failed") {
+              const errMsg = msg.header?.error_message || "Task failed";
+              ws.close();
+              done({ ok: false, error: errMsg });
+            }
+          }
+          win.webContents.send("asr-event", { connId, data: msg });
+        } catch {}
+      });
+
+      ws.on("error", (err) => {
+        if (!resolved) done({ ok: false, error: err.message || "WebSocket error" });
+        win.webContents.send("asr-event", { connId, error: err.message });
+      });
+
+      ws.on("close", () => {
+        if (!resolved) done({ ok: false, error: "Connection closed" });
+        asrConnections.delete(connId);
+        win.webContents.send("asr-event", { connId, closed: true });
+      });
+
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          try { ws.close(); } catch {}
+          done({ ok: false, error: "Connection timeout" });
+        }
+      }, 10000);
+    });
   } catch (err) {
     return { ok: false, error: err.message };
   }
 });
 
-// ===== 阿里云 ASR WebSocket header 注入 =====
-// Electron 的 webRequest API 可以拦截 WebSocket 握手并注入 header
+ipcMain.on("asr-audio", (_event, { connId, audioData }) => {
+  const conn = asrConnections.get(connId);
+  if (conn?.ws?.readyState === WebSocket.OPEN) {
+    conn.ws.send(Buffer.from(audioData));
+  }
+});
 
-function setupAsrAuthInterceptor(session) {
-  session.webRequest.onBeforeSendHeaders(
-    { urls: ["wss://dashscope.aliyuncs.com/*", "https://dashscope.aliyuncs.com/*"] },
-    (details, callback) => {
-      try {
-        const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-        const apiKey = config.llm?.apiKey;
-        if (apiKey) {
-          details.requestHeaders["Authorization"] = `Bearer ${apiKey}`;
-        }
-      } catch {}
-      callback({ requestHeaders: details.requestHeaders });
-    }
-  );
-}
+ipcMain.on("asr-finish", (_event, { connId }) => {
+  const conn = asrConnections.get(connId);
+  if (conn?.ws?.readyState === WebSocket.OPEN) {
+    conn.ws.send(JSON.stringify({ header: { action: "finish-task", task_id: connId } }));
+  }
+});
 
-ipcMain.handle("asr-get-token", async () => {
-  const raw = fs.readFileSync(CONFIG_PATH, "utf8");
-  return JSON.parse(raw).llm?.apiKey || "";
+ipcMain.on("asr-close", (_event, { connId }) => {
+  const conn = asrConnections.get(connId);
+  if (conn) {
+    try { conn.ws.close(); } catch {}
+    asrConnections.delete(connId);
+  }
 });
 
 app.whenReady().then(() => {
-  setupAsrAuthInterceptor(session.defaultSession);
   registerAssetProtocol();
   createWindow();
   createTray();

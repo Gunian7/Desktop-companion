@@ -405,16 +405,16 @@ function setupNlsWebSocketASR() {
 }
 
 // ===== 阿里云 DashScope Paraformer 实时 WebSocket ASR =====
+// WebSocket 在 main 进程管理（通过 IPC 桥接），支持 Authorization header
 
 function setupDashScopeRealtimeASR() {
   if (!navigator.mediaDevices?.getUserMedia) { micBtn.title = "不支持录音"; return; }
 
-  let ws = null;
-  let audioCtx = null;
-  let processor = null;
+  let connId = null;
   let stream = null;
   let finalText = "";
   let interimText = "";
+  let removeListener = null;
 
   micBtn.addEventListener("click", async () => {
     if (state.isBusy) return;
@@ -425,62 +425,62 @@ function setupDashScopeRealtimeASR() {
     }
 
     try {
-      // 1. 获取麦克风（用系统默认采样率）
-      // 2. 连接 WebSocket
-      ws = new WebSocket("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
-      ws.binaryType = "arraybuffer";
-      let taskStarted = false;
+      // 1. 通过 IPC 在 main 进程建立 WebSocket（带 Authorization header）
+      const result = await window.electronAPI.startAsr();
+      if (!result.ok) {
+        showError("识别服务连接失败：" + result.error);
+        return;
+      }
+      connId = result.connId;
 
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data);
-          if (msg.header?.event === "task-started") taskStarted = true;
-          else if (msg.header?.event === "result-generated") {
-            const text = msg.payload?.output?.sentence?.text || "";
-            if (msg.payload?.output?.sentence?.end_time) {
-              finalText += text;
-              interimText = "";
-              showBubble(finalText || "我在听...");
-            } else {
-              interimText = text;
-              showBubble(finalText + interimText || "我在听...");
-            }
-          } else if (msg.header?.event === "task-failed") { showError("识别失败"); }
-        } catch {}
-      };
+      // 2. 监听服务端事件
+      removeListener = window.electronAPI.onAsrEvent(({ connId: eConnId, data, error, closed }) => {
+        if (eConnId !== connId) return;
 
-      await new Promise((resolve, reject) => {
-        ws.onopen = resolve;
-        ws.onerror = () => reject(new Error("WebSocket 连接失败"));
-        setTimeout(() => reject(new Error("WebSocket 连接超时")), 8000);
+        if (closed) {
+          cleanupMic();
+          return;
+        }
+
+        if (error) {
+          console.error("[ASR] error:", error);
+          return;
+        }
+
+        if (!data) return;
+
+        if (data.header?.event === "result-generated") {
+          const text = data.payload?.output?.sentence?.text || "";
+          if (data.payload?.output?.sentence?.end_time) {
+            finalText += text;
+            interimText = "";
+            showBubble(finalText || "我在听...");
+          } else {
+            interimText = text;
+            showBubble(finalText + interimText || "我在听...");
+          }
+        } else if (data.header?.event === "task-failed") {
+          showError("识别失败：" + (data.header?.error_message || "未知错误"));
+          cleanupMic();
+        } else if (data.header?.event === "task-finished") {
+          cleanupMic();
+        }
       });
 
-      // 3. 发送 run-task（用 Opus 格式，省去 PCM 转换）
-      ws.send(JSON.stringify({
-        header: { action: "run-task", task_id: Date.now().toString(), streaming: "duplex" },
-        payload: {
-          task_group: "audio", task: "asr", function: "recognition",
-          model: "paraformer-realtime-v2",
-          parameters: { format: "opus", sample_rate: 16000, language_hints: ["zh"], punctuation_prediction_enabled: true },
-          input: {},
-        },
-      }));
-
-      await new Promise((resolve, reject) => {
-        const check = setInterval(() => { if (taskStarted) { clearInterval(check); resolve(); } }, 50);
-        setTimeout(() => { clearInterval(check); reject(new Error("task 未启动")); }, 5000);
-      });
-
-      // 4. 获取麦克风 + MediaRecorder 直录 Opus → WebSocket
+      // 3. 获取麦克风 + MediaRecorder 直录 Opus → IPC → main 进程 WebSocket
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       state.mediaRecorder = mediaRecorder;
+
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
-          e.data.arrayBuffer().then((buf) => ws.send(buf));
+        if (e.data.size > 0) {
+          e.data.arrayBuffer().then((buf) => {
+            const bytes = new Uint8Array(buf);
+            window.electronAPI.sendAsrAudio(connId, Array.from(bytes));
+          });
         }
       };
-      mediaRecorder.start(200); // 200ms 一片
+      mediaRecorder.start(200);
 
       // UI 状态
       state.isListening = true;
@@ -499,23 +499,14 @@ function setupDashScopeRealtimeASR() {
     }
   });
 
-  function stopRecording() {
-    try {
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ header: { action: "finish-task" } }));
-      }
-    } catch {}
+  function cleanupMic() {
+    if (removeListener) { removeListener(); removeListener = null; }
 
     try { if (state.mediaRecorder?.state === "recording") state.mediaRecorder.stop(); } catch {}
     state.mediaRecorder = null;
 
     try { if (stream) { stream.getTracks().forEach((t) => t.stop()); } } catch {}
     stream = null;
-
-    setTimeout(() => {
-      try { if (ws) { ws.close(); } } catch {}
-      ws = null;
-    }, 500);
 
     state.isListening = false;
     micBtn.classList.remove("is-listening");
@@ -524,12 +515,22 @@ function setupDashScopeRealtimeASR() {
       avatarImage.classList.add("avatar-idle");
     }
 
-    // 有结果就发送
     const text = (finalText + interimText).trim();
     if (text) {
       userInput.value = "";
       void handleUserInput(text);
     }
+  }
+
+  function stopRecording() {
+    if (connId) {
+      window.electronAPI.finishAsr(connId);
+      setTimeout(() => {
+        window.electronAPI.closeAsr(connId);
+        connId = null;
+      }, 500);
+    }
+    cleanupMic();
   }
 }
 
@@ -1979,7 +1980,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    setupDashScopeASR();
+    setupDashScopeRealtimeASR();
     await loadModel();
 
     window.addEventListener("resize", () => {
