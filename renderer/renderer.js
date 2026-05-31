@@ -317,39 +317,19 @@ function setupDashScopeRealtimeASR() {
       // 1. 获取麦克风
       stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
 
-      // 2. 通过主进程 WebSocket 代理连接（支持 Authorization header）
-      const apiKey = state.config?.llm?.apiKey || "";
-      await window.electronAPI.asrConnect(apiKey);
+      // 2. 连接 WebSocket（main.js 的 webRequest 拦截器自动加 Authorization header）
+      ws = new WebSocket("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+      ws.binaryType = "arraybuffer";
 
-      // 3. 监听消息
-      let taskStarted = false;
-      window.electronAPI.onAsrMessage((data) => {
-        try {
-          const msg = JSON.parse(data);
-          if (msg.header?.event === "task-started") {
-            taskStarted = true;
-          } else if (msg.header?.event === "result-generated") {
-            const text = msg.payload?.output?.sentence?.text || "";
-            if (msg.payload?.output?.sentence?.end_time) {
-              finalText += text;
-              interimText = "";
-              showBubble(finalText);
-            } else {
-              interimText = text;
-              showBubble(finalText + interimText || "我在听...");
-            }
-          } else if (msg.header?.event === "task-failed") {
-            console.error("ASR task failed:", msg);
-            showError("语音识别失败");
-          }
-        } catch {}
+      await new Promise((resolve, reject) => {
+        ws.onopen = resolve;
+        ws.onerror = () => reject(new Error("WebSocket 连接失败"));
+        setTimeout(() => reject(new Error("WebSocket 连接超时")), 5000);
       });
 
-      window.electronAPI.onAsrClosed(() => { ws = null; });
-
-      // 4. 发送 run-task
+      // 3. 发送 run-task
       const taskId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
-      window.electronAPI.asrSendText(JSON.stringify({
+      ws.send(JSON.stringify({
         header: { action: "run-task", task_id: taskId, streaming: "duplex" },
         payload: {
           task_group: "audio", task: "asr", function: "recognition",
@@ -364,10 +344,12 @@ function setupDashScopeRealtimeASR() {
         },
       }));
 
-      // 等待 task-started
+      // 4. 等待 task-started
       await new Promise((resolve) => {
-        const check = setInterval(() => { if (taskStarted) { clearInterval(check); resolve(); } }, 100);
-        setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(e.data);
+          if (msg.header?.event === "task-started") resolve();
+        };
       });
 
       // 5. 开始录音并流式发送 PCM
@@ -382,16 +364,37 @@ function setupDashScopeRealtimeASR() {
       }
 
       processor.onaudioprocess = (e) => {
+        if (ws?.readyState !== WebSocket.OPEN) return;
         let floatData = e.inputBuffer.getChannelData(0);
         const int16 = new Int16Array(floatData.length);
         for (let i = 0; i < floatData.length; i++) {
           int16[i] = Math.max(-32768, Math.min(32767, Math.round(floatData[i] * 32767)));
         }
-        window.electronAPI.asrSendAudio(int16.buffer);
+        ws.send(int16.buffer);
       };
-
       source.connect(processor);
       processor.connect(audioCtx.destination);
+
+      // 接收识别结果
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.header?.event === "result-generated") {
+            const text = msg.payload?.output?.sentence?.text || "";
+            if (msg.payload?.output?.sentence?.end_time) {
+              finalText += text;
+              interimText = "";
+              showBubble(finalText);
+            } else {
+              interimText = text;
+              showBubble(finalText + interimText || "我在听...");
+            }
+          } else if (msg.header?.event === "task-failed") {
+            console.error("ASR task failed:", msg);
+            showError("语音识别失败");
+          }
+        } catch {}
+      };
 
       // UI 状态
       state.isListening = true;
@@ -412,14 +415,18 @@ function setupDashScopeRealtimeASR() {
 
   function stopRecording() {
     // 发送 finish-task
-    window.electronAPI.asrSendText(JSON.stringify({ header: { action: "finish-task" } }));
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ header: { action: "finish-task" } }));
+    }
 
     // 清理
     if (processor) { processor.disconnect(); processor = null; }
     if (audioCtx) { audioCtx.close(); audioCtx = null; }
     if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
 
-    setTimeout(() => window.electronAPI.asrClose(), 500);
+    setTimeout(() => {
+      if (ws) { ws.close(); ws = null; }
+    }, 500);
 
     state.isListening = false;
     micBtn.classList.remove("is-listening");

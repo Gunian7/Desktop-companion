@@ -357,47 +357,32 @@ ipcMain.handle("transcribe-audio", async (_event, payload) => {
   }
 });
 
-// ===== 阿里云 ASR WebSocket 代理（绕过浏览器 header 限制）=====
+// ===== 阿里云 ASR WebSocket header 注入 =====
+// Electron 的 webRequest API 可以拦截 WebSocket 握手并注入 header
 
-const WebSocket = require("ws");
-
-let asrWs = null;
-let asrWin = null;
-
-ipcMain.handle("asr-connect", async (event, token) => {
-  asrWin = BrowserWindow.fromWebContents(event.sender);
-  return new Promise((resolve, reject) => {
-    try {
-      asrWs = new WebSocket("wss://dashscope.aliyuncs.com/api-ws/v1/inference", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      asrWs.binaryType = "nodebuffer";
-
-      asrWs.on("open", () => resolve(true));
-      asrWs.on("error", (err) => reject(err.message));
-      asrWs.on("close", () => { asrWs = null; if (asrWin) asrWin.webContents.send("asr-closed"); });
-      asrWs.on("message", (data) => {
-        if (asrWin) asrWin.webContents.send("asr-message", String(data));
-      });
-    } catch (err) {
-      reject(err.message);
+function setupAsrAuthInterceptor(session) {
+  session.webRequest.onBeforeSendHeaders(
+    { urls: ["wss://dashscope.aliyuncs.com/*", "https://dashscope.aliyuncs.com/*"] },
+    (details, callback) => {
+      try {
+        const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+        const apiKey = config.llm?.apiKey;
+        if (apiKey) {
+          details.requestHeaders["Authorization"] = `Bearer ${apiKey}`;
+        }
+      } catch {}
+      callback({ requestHeaders: details.requestHeaders });
     }
-  });
-});
+  );
+}
 
-ipcMain.on("asr-send-text", (_event, text) => {
-  if (asrWs?.readyState === WebSocket.OPEN) asrWs.send(text);
-});
-
-ipcMain.on("asr-send-audio", (_event, buffer) => {
-  if (asrWs?.readyState === WebSocket.OPEN) asrWs.send(Buffer.from(buffer));
-});
-
-ipcMain.on("asr-close", () => {
-  if (asrWs) { asrWs.close(); asrWs = null; }
+ipcMain.handle("asr-get-token", async () => {
+  const raw = fs.readFileSync(CONFIG_PATH, "utf8");
+  return JSON.parse(raw).llm?.apiKey || "";
 });
 
 app.whenReady().then(() => {
+  setupAsrAuthInterceptor(session.defaultSession);
   registerAssetProtocol();
   createWindow();
   createTray();
