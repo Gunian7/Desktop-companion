@@ -100,6 +100,17 @@ function updateMousePassthrough() {
 function pointHitsModel(clientX, clientY) {
   const modelType = state.config?.modelType || "live2d";
 
+  if (modelType === "image") {
+    if (avatarImage.style.display === "none") return false;
+    const rect = avatarImage.getBoundingClientRect();
+    return (
+      clientX >= rect.left &&
+      clientX <= rect.right &&
+      clientY >= rect.top &&
+      clientY <= rect.bottom
+    );
+  }
+
   if (modelType === "vrm") {
     if (!vrmState.vrm || !vrmState.camera || !vrmState.canvas) {
       return false;
@@ -207,7 +218,7 @@ function addInputInteractivity() {
 
 function addModelDragInteractivity() {
   const vrmCanvas = document.getElementById("vrm-canvas");
-  const pointerTargets = [canvas, vrmCanvas];
+  const pointerTargets = [canvas, vrmCanvas, avatarImage];
 
   for (const target of pointerTargets) {
     target.addEventListener("pointermove", (event) => {
