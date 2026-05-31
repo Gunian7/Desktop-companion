@@ -295,7 +295,7 @@ async function stopMediaStream() {
 
 // ===== 阿里云 NLS REST ASR（一句话识别，简单稳定）=====
 
-function setupNlsRestASR() {
+function setupNlsWebSocketASR() {
   if (!navigator.mediaDevices?.getUserMedia) { micBtn.title = "不支持录音"; return; }
 
   let mediaRecorder = null;
@@ -311,11 +311,66 @@ function setupNlsRestASR() {
     }
 
     try {
+      // 1. 获取 NLS Token
+      const tokenResult = await window.electronAPI.getNlsToken();
+      if (!tokenResult.ok) {
+        showError("Token 获取失败：" + tokenResult.error);
+        return;
+      }
+
+      // 2. 连接 NLS WebSocket（token/appkey 在 URL 里，浏览器原生支持）
+      let ws = null;
+      let finalText = "";
+      ws = new WebSocket(
+        "wss://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/asr?" +
+        new URLSearchParams({
+          token: tokenResult.token,
+          appkey: tokenResult.appkey,
+          format: "opus",
+          sample_rate: "16000",
+          enable_intermediate_result: "true",
+          enable_punctuation_prediction: "true",
+        })
+      );
+      ws.binaryType = "arraybuffer";
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.header?.name === "SentenceBegin") {
+            showBubble("...");
+          } else if (msg.header?.name === "TranscriptionResultChanged") {
+            showBubble(msg.payload?.result || "我在听...");
+          } else if (msg.header?.name === "SentenceEnd") {
+            finalText = (finalText + " " + (msg.payload?.result || "")).trim();
+            showBubble(finalText);
+          }
+        } catch {}
+      };
+
+      await new Promise((resolve, reject) => {
+        ws.onopen = resolve;
+        ws.onerror = () => reject(new Error("WebSocket 连接失败"));
+        setTimeout(() => reject(new Error("连接超时")), 8000);
+      });
+
+      // 3. 打开麦克风，MediaRecorder 流式发送到 WebSocket
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      chunks = [];
 
-      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0 && ws?.readyState === WebSocket.OPEN) {
+          e.data.arrayBuffer().then((buf) => ws.send(buf));
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        setTimeout(() => { try { ws.close(); } catch {} }, 500);
+        if (finalText.trim()) {
+          userInput.value = "";
+          void handleUserInput(finalText.trim());
+        }
+      };
 
       mediaRecorder.onstart = () => {
         state.isListening = true;
@@ -346,56 +401,6 @@ function setupNlsRestASR() {
     try { if (stream) { stream.getTracks().forEach((t) => t.stop()); } } catch {}
     mediaRecorder = null;
     stream = null;
-
-    await new Promise((r) => setTimeout(r, 300));
-    if (chunks.length === 0) return;
-
-    try {
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      const arrayBuffer = await blob.arrayBuffer();
-
-      // 获取 NLS Token（主进程自动用 AccessKey 生成）
-      const tokenResult = await window.electronAPI.getNlsToken();
-      if (!tokenResult.ok) {
-        showError("NLS Token 获取失败：" + tokenResult.error);
-        return;
-      }
-
-      // 直接发送原始音频，不做 AudioContext 转换（避免崩溃）
-      const params = new URLSearchParams({
-        appkey: tokenResult.appkey,
-        format: "opus",
-        sample_rate: "16000",
-        enable_punctuation_prediction: "true",
-        enable_intermediate_result: "false",
-      });
-
-      const response = await fetch(
-        `https://nls-gateway-cn-shanghai.aliyuncs.com/stream/v1/asr?${params}`,
-        {
-          method: "POST",
-          headers: {
-            "X-NLS-Token": tokenResult.token,
-            "Content-Type": "application/octet-stream",
-          },
-          body: arrayBuffer,
-        }
-      );
-
-      const result = await response.json();
-      console.error("[NLS]", response.status, JSON.stringify(result));
-
-      if (result.status === 200 && result.result) {
-        userInput.value = "";
-        showBubble(result.result);
-        void handleUserInput(result.result);
-      } else {
-        showError("识别失败：" + (result.status_text || result.status || "未知"));
-      }
-    } catch (err) {
-      console.error("ASR error:", err);
-      showError("语音识别失败：" + (err.message || err));
-    }
   }
 }
 
@@ -1974,7 +1979,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    setupNlsRestASR();
+    setupNlsWebSocketASR();
     await loadModel();
 
     window.addEventListener("resize", () => {

@@ -382,7 +382,7 @@ function generateNlsToken(accessKeyId, accessKeySecret) {
   const key = accessKeySecret + "&";
   const signature = crypto.createHmac("sha1", key).update(stringToSign).digest("base64");
 
-  return `http://nls-meta.cn-shanghai.aliyuncs.com/pop/2018-05-18/tokens?${canonicalQuery}&Signature=${encodeURIComponent(signature)}`;
+  return `https://nls-meta.cn-shanghai.aliyuncs.com/pop/2019-02-28/tokens?${canonicalQuery}&Signature=${encodeURIComponent(signature)}`;
 }
 
 ipcMain.handle("nls-get-token", async () => {
