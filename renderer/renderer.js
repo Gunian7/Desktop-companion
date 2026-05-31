@@ -1850,7 +1850,8 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    setupWebSpeechInput();
+    // 语音输入暂时禁用，使用文本输入
+    micBtn.style.display = "none";
     await loadModel();
 
     window.addEventListener("resize", () => {
