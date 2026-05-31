@@ -374,6 +374,123 @@ function setupWebSpeechInput() {
   }
 }
 
+// ===== 阿里云 DashScope Paraformer 语音识别 =====
+
+function setupDashScopeASR() {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    micBtn.title = "当前环境不支持录音";
+    return;
+  }
+
+  micBtn.addEventListener("click", async () => {
+    if (state.isBusy) return;
+
+    if (state.isListening) {
+      if (state.mediaRecorder) state.mediaRecorder.stop();
+      return;
+    }
+
+    try {
+      await ensureAudioContext();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "",
+      });
+
+      state.mediaStream = stream;
+      state.mediaRecorder = mediaRecorder;
+      const chunks = [];
+
+      mediaRecorder.addEventListener("dataavailable", (e) => {
+        if (e.data?.size > 0) chunks.push(e.data);
+      });
+
+      mediaRecorder.addEventListener("start", () => {
+        state.isListening = true;
+        micBtn.classList.add("is-listening");
+        showBubble("我在听...");
+        if ((state.config?.modelType || "live2d") === "image") {
+          avatarImage.classList.remove("avatar-idle");
+          avatarImage.classList.add("avatar-listening");
+        }
+      });
+
+      mediaRecorder.addEventListener("stop", async () => {
+        state.isListening = false;
+        micBtn.classList.remove("is-listening");
+        avatarImage.classList.remove("avatar-listening");
+        if ((state.config?.modelType || "live2d") === "image") {
+          avatarImage.classList.add("avatar-idle");
+        }
+
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+        state.mediaStream = null;
+        state.mediaRecorder = null;
+
+        if (chunks.length === 0) return;
+
+        try {
+          const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
+          const arrayBuffer = await blob.arrayBuffer();
+          const base64 = arrayBufferToBase64(arrayBuffer);
+          const mime = blob.type || "audio/webm";
+
+          // 调用阿里云 Paraformer ASR
+          const response = await fetch(
+            "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + (state.config.llm.apiKey || ""),
+              },
+              body: JSON.stringify({
+                model: "paraformer-v2",
+                input: {
+                  audio: "data:" + mime + ";base64," + base64,
+                },
+                parameters: {
+                  format: mime.includes("webm") ? "webm" : "wav",
+                  sample_rate: 16000,
+                  language_hints: ["zh"],
+                },
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            const err = await response.text();
+            console.error("[ASR] DashScope error:", err);
+            throw new Error("ASR " + response.status);
+          }
+
+          const result = await response.json();
+          const text = result?.output?.text?.trim();
+
+          if (text) {
+            userInput.value = "";
+            showBubble(text);
+            void handleUserInput(text);
+          } else {
+            showBubble("没有识别到有效语音");
+            hideBubble(2000);
+          }
+        } catch (error) {
+          console.error("ASR failed:", error);
+          showError("语音识别失败：" + (error.message || error));
+        }
+      });
+
+      mediaRecorder.start();
+    } catch (error) {
+      console.error("Mic start failed:", error);
+      state.isListening = false;
+      micBtn.classList.remove("is-listening");
+      showError("无法开启麦克风：" + (error.message || error));
+    }
+  });
+}
+
 // ===== 旧版 ASR（GPT-SoVITS FunASR，回退用）=====
 
 async function setupLocalSpeechRecorder() {
@@ -1639,9 +1756,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-
-    setupLocalSpeechRecorder();
-    bindSpeechInput();
+    setupDashScopeASR();
     await loadModel();
 
     window.addEventListener("resize", () => {
