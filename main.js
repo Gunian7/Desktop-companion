@@ -6,6 +6,12 @@ const { execFile } = require("child_process");
 const { pathToFileURL } = require("url");
 const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, protocol, net, globalShortcut, screen } = require("electron");
 
+// GPU / WebGL 兼容性配置
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("enable-webgl");
+app.commandLine.appendSwitch("disable-gpu-sandbox");
+app.commandLine.appendSwitch("use-angle", "d3d11");
+
 const APP_ROOT = __dirname;
 const CONFIG_PATH = path.join(APP_ROOT, "config.json");
 const ASSETS_ROOT = path.join(APP_ROOT, "assets");
@@ -246,6 +252,8 @@ function createWindow() {
   const topLevel = process.platform === "darwin" ? "floating" : "screen-saver";
   mainWindow.setAlwaysOnTop(true, topLevel);
   mainWindow.loadFile(path.join(APP_ROOT, "renderer", "index.html"));
+
+  mainWindow.webContents.openDevTools({ mode: "detach" });
 
   mainWindow.on("close", (event) => {
     if (!isQuitting) {

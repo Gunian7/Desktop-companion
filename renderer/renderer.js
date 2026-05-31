@@ -870,10 +870,13 @@ async function loadVRMModel() {
   const renderer = new THREE.WebGLRenderer({
     canvas: vrmCanvas,
     alpha: true,
-    antialias: true,
+    premultipliedAlpha: true,
+    antialias: false,
+    powerPreference: "default",
+    preserveDrawingBuffer: false,
   });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(1);
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   vrmState.renderer = renderer;
@@ -936,8 +939,8 @@ async function loadVRMModel() {
 
       for (const mat of mats) {
         if (mat.isShaderMaterial) {
-          // MToon ShaderMaterial → MeshStandardMaterial
-          const newMat = new THREE.MeshStandardMaterial();
+          // MToon ShaderMaterial → MeshPhongMaterial（着色器更轻量，兼容性好）
+          const newMat = new THREE.MeshPhongMaterial();
           if (mat.uniforms?.map?.value) {
             newMat.map = mat.uniforms.map.value;
           }
@@ -953,8 +956,7 @@ async function loadVRMModel() {
           newMat.depthTest = true;
           newMat.renderOrder = mat.transparent ? 1 : 0;
           newMat.side = mat.side || THREE.DoubleSide;
-          newMat.roughness = 0.8;
-          newMat.metalness = 0;
+          newMat.shininess = 10;
           newMat.needsUpdate = true;
           newMats.push(newMat);
           replacedCount++;
