@@ -360,7 +360,8 @@ function setupDashScopeRealtimeASR() {
         setTimeout(() => { clearInterval(check); reject(new Error("task 未启动")); }, 5000);
       });
 
-      // 4. MediaRecorder 直录 Opus → WebSocket（不用 AudioContext）
+      // 4. 获取麦克风 + MediaRecorder 直录 Opus → WebSocket
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
       state.mediaRecorder = mediaRecorder;
       mediaRecorder.ondataavailable = (e) => {
