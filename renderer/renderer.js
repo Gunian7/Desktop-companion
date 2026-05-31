@@ -317,8 +317,9 @@ function setupDashScopeRealtimeASR() {
       // 1. 获取麦克风
       stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
 
-      // 2. 连接 WebSocket
-      ws = new WebSocket("wss://dashscope.aliyuncs.com/api-ws/v1/inference");
+      // 2. 连接 WebSocket（通过 token 参数传 API key）
+      const apiKey = state.config?.llm?.apiKey || "";
+      ws = new WebSocket(`wss://dashscope.aliyuncs.com/api-ws/v1/inference?token=${encodeURIComponent(apiKey)}`);
       ws.binaryType = "arraybuffer";
 
       await new Promise((resolve, reject) => {
