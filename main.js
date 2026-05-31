@@ -10,7 +10,7 @@ const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, protocol, net, glo
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
 app.commandLine.appendSwitch("enable-webgl");
 app.commandLine.appendSwitch("disable-gpu-sandbox");
-app.commandLine.appendSwitch("use-angle", "d3d11");
+app.commandLine.appendSwitch("enable-unsafe-swiftshader");
 
 const APP_ROOT = __dirname;
 const CONFIG_PATH = path.join(APP_ROOT, "config.json");
