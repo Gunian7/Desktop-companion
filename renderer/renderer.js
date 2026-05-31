@@ -1733,16 +1733,25 @@ async function loadModel() {
   tryStartIdleMotion();
 }
 
-// ===== Qwen ASR（qwen3-asr-flash via MultiModalConversation API）=====
+// ===== Qwen ASR（qwen3-asr-flash + 静音检测 + SSE 流式结果）=====
 
 function setupQwenASR() {
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
     micBtn.title = "不支持录音"; return;
   }
 
+  const MAX_DURATION = 15000;       // 最长录音 15s
+  const SILENCE_TIMEOUT = 2000;     // 静音 2s 自动截止
+  const SPEECH_THRESHOLD = 0.02;    // 音量阈值
+
   let mediaRecorder = null;
   let stream = null;
   let chunks = [];
+  let audioCtx = null;
+  let analyser = null;
+  let silenceTimer = null;
+  let maxTimer = null;
+  let lastSpeechTime = 0;
 
   micBtn.addEventListener("click", async () => {
     if (state.isBusy) return;
@@ -1758,9 +1767,17 @@ function setupQwenASR() {
       mediaRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
       chunks = [];
 
+      // 静音检测：AudioContext + AnalyserNode
+      audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
       mediaRecorder.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
 
       mediaRecorder.onstart = () => {
+        lastSpeechTime = Date.now();
         state.isListening = true;
         micBtn.classList.add("is-listening");
         showBubble("我在听...");
@@ -1768,15 +1785,30 @@ function setupQwenASR() {
           avatarImage.classList.remove("avatar-idle");
           avatarImage.classList.add("avatar-listening");
         }
+        // 启动静音检测循环
+        detectSilence();
+        // 最长录音到时自动截止
+        maxTimer = setTimeout(() => {
+          if (state.isListening) stopRecording();
+        }, MAX_DURATION);
       };
 
       mediaRecorder.onstop = async () => {
+        clearSilenceDetection();
+        clearTimeout(maxTimer);
         state.isListening = false;
         micBtn.classList.remove("is-listening");
         avatarImage.classList.remove("avatar-listening");
         if ((state.config?.modelType || "live2d") === "image") {
           avatarImage.classList.add("avatar-idle");
         }
+
+        // 清理音频链路
+        try { analyser?.disconnect(); } catch {}
+        try { source?.disconnect(); } catch {}
+        try { audioCtx?.close(); } catch {}
+        analyser = null;
+        audioCtx = null;
 
         try { if (stream) { stream.getTracks().forEach((t) => t.stop()); } } catch {}
         stream = null;
@@ -1801,6 +1833,39 @@ function setupQwenASR() {
     }
   });
 
+  function detectSilence() {
+    if (!analyser || !state.isListening) return;
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(dataArray);
+    const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length / 255;
+
+    if (avg > SPEECH_THRESHOLD) {
+      lastSpeechTime = Date.now();
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+    } else if (!silenceTimer) {
+      silenceTimer = setTimeout(() => {
+        if (state.isListening && Date.now() - lastSpeechTime >= SILENCE_TIMEOUT) {
+          stopRecording();
+        }
+      }, SILENCE_TIMEOUT);
+    }
+
+    // 显示音量指示
+    const bars = Math.round(avg * 8);
+    showBubble("我在听..." + "▁▂▃▄▅▆▇█".slice(0, bars));
+
+    if (state.isListening) {
+      requestAnimationFrame(detectSilence);
+    }
+  }
+
+  function clearSilenceDetection() {
+    clearTimeout(silenceTimer);
+    silenceTimer = null;
+  }
+
   async function blobToBase64(blob) {
     const buf = await blob.arrayBuffer();
     const bytes = new Uint8Array(buf);
@@ -1822,6 +1887,7 @@ function setupQwenASR() {
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer " + llmConfig.apiKey,
+          "X-DashScope-SSE": "enable",
         },
         body: JSON.stringify({
           model: "qwen3-asr-flash",
@@ -1832,6 +1898,7 @@ function setupQwenASR() {
             }],
           },
           parameters: {
+            incremental_output: true,
             asr_options: { language: "zh" },
           },
         }),
@@ -1843,13 +1910,39 @@ function setupQwenASR() {
       throw new Error("ASR " + resp.status + ": " + errText.slice(0, 150));
     }
 
-    const result = await resp.json();
-    const text = result?.output?.choices?.[0]?.message?.content?.[0]?.text?.trim();
+    // 解析 SSE 流式响应，实时显示
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalText = "";
 
-    if (text) {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const jsonStr = line.slice(5).trim();
+        if (!jsonStr) continue;
+
+        try {
+          const msg = JSON.parse(jsonStr);
+          const text = msg?.output?.choices?.[0]?.message?.content?.[0]?.text || "";
+          if (text) {
+            finalText = text;
+            showBubble(finalText);
+          }
+        } catch {}
+      }
+    }
+
+    if (finalText.trim()) {
       userInput.value = "";
-      showBubble(text);
-      void handleUserInput(text);
+      void handleUserInput(finalText.trim());
     } else {
       showBubble("没听清，再试一次？");
       hideBubble(2000);
@@ -1857,6 +1950,8 @@ function setupQwenASR() {
   }
 
   function stopRecording() {
+    clearSilenceDetection();
+    clearTimeout(maxTimer);
     try { if (mediaRecorder?.state === "recording") mediaRecorder.stop(); } catch {}
   }
 }
