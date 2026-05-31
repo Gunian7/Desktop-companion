@@ -935,18 +935,26 @@ async function loadVRMModel() {
   console.log("[VRM] Height:", modelHeight, "centerY:", center.y);
 
   // 自适应缩放：让模型高度约为窗口的合适比例
-  const autoScale = 1.5 / Math.max(modelHeight, 0.01);
-  const scale = (vrmConfig.scale || 1) * autoScale;
-  console.log("[VRM] Scale:", scale);
+  const targetHeight = 1.5;
+  const autoScale = targetHeight / Math.max(modelHeight, 0.01);
+  const finalScale = (vrmConfig.scale || 1) * autoScale;
+  console.log("[VRM] Scale:", finalScale, "original height:", modelHeight);
 
-  vrm.scene.scale.set(scale, scale, scale);
+  vrm.scene.scale.set(finalScale, finalScale, finalScale);
+
+  // 脚底对齐原点，模型居中
+  const feetY = -(center.y - size.y / 2) * finalScale;
+  const modelCenterY = targetHeight * (vrmConfig.scale || 1) / 2;
   vrm.scene.position.set(
     vrmConfig.x || 0,
-    -(center.y - size.y / 2) * scale + (vrmConfig.y || 0),
+    feetY + (vrmConfig.y || 0),
     vrmConfig.z || 0
   );
 
-  camera.lookAt(0, 0.5 * autoScale, 0);
+  // 相机对准模型中部
+  const camY = modelCenterY;
+  camera.position.set(0, camY, dist);
+  camera.lookAt(0, camY, 0);
 
   if (vrm.lookAt) {
     vrm.lookAt.target = camera;
