@@ -1231,9 +1231,10 @@ function loadImageAvatar() {
     avatarImage.classList.add("avatar-breathe");
   }
 
-  const scale = imgConfig.scale || 0.8;
-  avatarImage.style.transform = `scale(${scale})`;
-  avatarImage.style.transformOrigin = "center bottom";
+  // 用 max-width 控制大小，避免与 CSS animation transform 冲突
+  const pct = Math.round((imgConfig.scale || 0.8) * 100);
+  avatarImage.style.maxWidth = pct + "%";
+  avatarImage.style.maxHeight = pct + "%";
 }
 
 async function loadModel() {
