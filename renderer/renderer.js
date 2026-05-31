@@ -923,7 +923,10 @@ async function loadVRMModel() {
 
   const scale = vrmConfig.scale || 12;
   vrm.scene.scale.set(scale, scale, scale);
-  vrm.scene.position.set(vrmConfig.x || 0, vrmConfig.y || -200, 0);
+  vrm.scene.position.set(vrmConfig.x || 0, vrmConfig.y || 0, 0);
+
+  const modelPos = vrm.scene.position;
+  camera.lookAt(modelPos.x, modelPos.y, modelPos.z);
 
   vrm.lookAt?.target && (vrm.lookAt.target = camera);
 

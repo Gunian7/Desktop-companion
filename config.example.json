@@ -41,10 +41,10 @@
     ]
   },
   "vrm": {
-    "modelPath": "assets/vrm/model.vrm",
-    "scale": 12,
+    "modelPath": "../assets/vrm/model.vrm",
+    "scale": 10,
     "x": 0,
-    "y": -200,
+    "y": 0,
     "cameraFov": 30,
     "cameraDistance": 2.5,
     "autoRotate": false,
