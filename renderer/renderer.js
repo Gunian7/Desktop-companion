@@ -467,20 +467,49 @@ function setupDashScopeRealtimeASR() {
         }
       });
 
-      // 3. 获取麦克风 + MediaRecorder 直录 Opus → IPC → main 进程 WebSocket
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-      state.mediaRecorder = mediaRecorder;
+      // 3. 获取麦克风 → AudioContext → PCM Int16 → IPC → main 进程 WebSocket
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          e.data.arrayBuffer().then((buf) => {
-            const bytes = new Uint8Array(buf);
-            window.electronAPI.sendAsrAudio(connId, Array.from(bytes));
-          });
+      const audioCtx = new AudioContext({ sampleRate: 16000 });
+      const source = audioCtx.createMediaStreamSource(stream);
+      // ScriptProcessorNode: 每 4096 帧回调一次，输出 Int16 PCM
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      let pcmBuffer = new Int16Array(0);
+
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          const s = Math.max(-1, Math.min(1, input[i]));
+          pcm[i] = s < 0 ? s * 32768 : s * 32767;
+        }
+        // 拼接到 buffer，然后批量发送（减少 IPC 调用）
+        const merged = new Int16Array(pcmBuffer.length + pcm.length);
+        merged.set(pcmBuffer, 0);
+        merged.set(pcm, pcmBuffer.length);
+        pcmBuffer = merged;
+
+        // 每攒够约 100ms 数据（1600 samples）发送一次
+        if (pcmBuffer.length >= 1600) {
+          const bytes = new Uint8Array(pcmBuffer.buffer);
+          window.electronAPI.sendAsrAudio(connId, Array.from(bytes));
+          pcmBuffer = new Int16Array(0);
         }
       };
-      mediaRecorder.start(200);
+
+      source.connect(processor);
+      // 连接静音 GainNode（必须有输出链路 onaudioprocess 才会触发）
+      const silenceGain = audioCtx.createGain();
+      silenceGain.gain.value = 0;
+      processor.connect(silenceGain);
+      silenceGain.connect(audioCtx.destination);
+      // 保存引用用于清理
+      state._asrSilenceGain = silenceGain;
+      state._asrCtx = audioCtx;
+      state._asrSource = source;
+      state._asrProcessor = processor;
 
       // UI 状态
       state.isListening = true;
@@ -502,8 +531,13 @@ function setupDashScopeRealtimeASR() {
   function cleanupMic() {
     if (removeListener) { removeListener(); removeListener = null; }
 
-    try { if (state.mediaRecorder?.state === "recording") state.mediaRecorder.stop(); } catch {}
-    state.mediaRecorder = null;
+    // 清理 AudioContext 链路
+    try { state._asrProcessor?.disconnect(); } catch {}
+    try { state._asrSource?.disconnect(); } catch {}
+    try { state._asrCtx?.close(); } catch {}
+    state._asrProcessor = null;
+    state._asrSource = null;
+    state._asrCtx = null;
 
     try { if (stream) { stream.getTracks().forEach((t) => t.stop()); } } catch {}
     stream = null;

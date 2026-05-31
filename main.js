@@ -392,7 +392,7 @@ ipcMain.handle("asr-start", async (event) => {
           payload: {
             task_group: "audio", task: "asr", function: "recognition",
             model: "paraformer-realtime-v2",
-            parameters: { format: "opus", sample_rate: 16000, language_hints: ["zh"], punctuation_prediction_enabled: true },
+            parameters: { format: "pcm", sample_rate: 16000, language_hints: ["zh"], punctuation_prediction_enabled: true },
             input: {},
           },
         }));
