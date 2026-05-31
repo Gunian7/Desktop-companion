@@ -1979,7 +1979,7 @@ async function bootstrap() {
     addInputInteractivity();
     addModelDragInteractivity();
     bindInputEvents();
-    setupDashScopeRealtimeASR();
+    setupDashScopeASR();
     await loadModel();
 
     window.addEventListener("resize", () => {
