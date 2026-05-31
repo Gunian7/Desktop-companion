@@ -4,7 +4,7 @@ const os = require("os");
 const { promisify } = require("util");
 const { execFile } = require("child_process");
 const { pathToFileURL } = require("url");
-const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, protocol, net, globalShortcut, screen } = require("electron");
+const { app, BrowserWindow, session, Menu, Tray, ipcMain, nativeImage, protocol, net, globalShortcut, screen } = require("electron");
 
 // GPU / WebGL 兼容性配置 — 强制软件渲染绕过 D3D11 驱动崩溃
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
