@@ -1213,28 +1213,34 @@ function startVRMLipSync(source) {
 // ===== Model Loading Dispatch =====
 
 function loadImageAvatar() {
-  const imgConfig = state.config.image;
+  const imgConfig = state.config.image || {};
   const canvasEl = document.getElementById("live2d-canvas");
   const vrmEl = document.getElementById("vrm-canvas");
   canvasEl.style.display = "none";
   vrmEl.style.display = "none";
-  avatarImage.style.display = "block";
 
   const src = imgConfig.src
     ? (imgConfig.src.startsWith("http") || imgConfig.src.startsWith("/")
         ? imgConfig.src
         : new URL(imgConfig.src, window.location.href).href)
     : "";
+
+  avatarImage.onerror = () => {
+    showBubble("图片加载失败，请检查路径：" + (imgConfig.src || "未设置"));
+    setTimeout(() => hideBubble(4000), 500);
+  };
+
+  avatarImage.onload = () => {
+    avatarImage.style.display = "block";
+    if (imgConfig.idleAnimation !== false) {
+      avatarImage.classList.add("avatar-idle");
+    }
+    const pct = Math.round((imgConfig.scale || 0.8) * 90);
+    avatarImage.style.maxWidth = pct + "%";
+    avatarImage.style.maxHeight = pct + "%";
+  };
+
   avatarImage.src = src;
-
-  if (imgConfig.idleAnimation !== false) {
-    avatarImage.classList.add("avatar-idle");
-  }
-
-  // 缩放由 CSS 的 max-width/max-height 控制
-  const pct = Math.round((imgConfig.scale || 0.8) * 90);
-  avatarImage.style.maxWidth = pct + "%";
-  avatarImage.style.maxHeight = pct + "%";
 }
 
 async function loadModel() {
