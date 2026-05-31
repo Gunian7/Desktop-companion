@@ -365,12 +365,12 @@ function generateNlsToken(accessKeyId, accessKeySecret) {
     AccessKeyId: accessKeyId,
     Action: "CreateToken",
     Format: "JSON",
-    RegionId: "cn-shanghai",
+    RegionId: "cn-hangzhou",
     SignatureMethod: "HMAC-SHA1",
     SignatureNonce: Math.random().toString(36).substring(2, 15),
     SignatureVersion: "1.0",
     Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-    Version: "2018-05-18",
+    Version: "2019-02-28",
   };
 
   const sortedKeys = Object.keys(params).sort();
@@ -382,7 +382,7 @@ function generateNlsToken(accessKeyId, accessKeySecret) {
   const key = accessKeySecret + "&";
   const signature = crypto.createHmac("sha1", key).update(stringToSign).digest("base64");
 
-  return `https://nls-meta.cn-shanghai.aliyuncs.com/pop/2019-02-28/tokens?${canonicalQuery}&Signature=${encodeURIComponent(signature)}`;
+  return `https://nls-meta.cn-shanghai.aliyuncs.com/?${canonicalQuery}&Signature=${encodeURIComponent(signature)}`;
 }
 
 ipcMain.handle("nls-get-token", async () => {
