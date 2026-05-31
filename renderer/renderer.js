@@ -354,10 +354,16 @@ function setupNlsRestASR() {
       const blob = new Blob(chunks, { type: "audio/webm" });
       const arrayBuffer = await blob.arrayBuffer();
 
+      // 获取 NLS Token（主进程自动用 AccessKey 生成）
+      const tokenResult = await window.electronAPI.getNlsToken();
+      if (!tokenResult.ok) {
+        showError("NLS Token 获取失败：" + tokenResult.error);
+        return;
+      }
+
       // 直接发送原始音频，不做 AudioContext 转换（避免崩溃）
-      const asrConfig = state.config.asr || {};
       const params = new URLSearchParams({
-        appkey: asrConfig.appkey || "",
+        appkey: tokenResult.appkey,
         format: "opus",
         sample_rate: "16000",
         enable_punctuation_prediction: "true",
@@ -369,7 +375,7 @@ function setupNlsRestASR() {
         {
           method: "POST",
           headers: {
-            "X-NLS-Token": asrConfig.token || state.config.llm?.apiKey || "",
+            "X-NLS-Token": tokenResult.token,
             "Content-Type": "application/octet-stream",
           },
           body: arrayBuffer,

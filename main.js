@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const os = require("os");
 const { promisify } = require("util");
 const { execFile } = require("child_process");
@@ -354,6 +355,52 @@ ipcMain.handle("transcribe-audio", async (_event, payload) => {
       fs.promises.rm(inputPath, { force: true }),
       fs.promises.rm(wavPath, { force: true }),
     ]);
+  }
+});
+
+// ===== 阿里云 NLS Token 生成 =====
+
+function generateNlsToken(accessKeyId, accessKeySecret) {
+  const params = {
+    AccessKeyId: accessKeyId,
+    Action: "CreateToken",
+    Format: "JSON",
+    RegionId: "cn-shanghai",
+    SignatureMethod: "HMAC-SHA1",
+    SignatureNonce: Math.random().toString(36).substring(2, 15),
+    SignatureVersion: "1.0",
+    Timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    Version: "2018-05-18",
+  };
+
+  const sortedKeys = Object.keys(params).sort();
+  const canonicalQuery = sortedKeys
+    .map((k) => encodeURIComponent(k) + "=" + encodeURIComponent(params[k]))
+    .join("&");
+
+  const stringToSign = "GET&" + encodeURIComponent("/") + "&" + encodeURIComponent(canonicalQuery);
+  const key = accessKeySecret + "&";
+  const signature = crypto.createHmac("sha1", key).update(stringToSign).digest("base64");
+
+  return `http://nls-meta.cn-shanghai.aliyuncs.com/pop/2018-05-18/tokens?${canonicalQuery}&Signature=${encodeURIComponent(signature)}`;
+}
+
+ipcMain.handle("nls-get-token", async () => {
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    const asr = config.asr || {};
+    if (!asr.appkey || !asr.accessKeyId || !asr.accessKeySecret) {
+      return { ok: false, error: "配置缺少 appkey/accessKeyId/accessKeySecret" };
+    }
+    const url = generateNlsToken(asr.accessKeyId, asr.accessKeySecret);
+    const resp = await net.fetch(url);
+    const data = await resp.json();
+    if (data.Token && data.Token.Id) {
+      return { ok: true, token: data.Token.Id, appkey: asr.appkey };
+    }
+    return { ok: false, error: JSON.stringify(data) };
+  } catch (err) {
+    return { ok: false, error: err.message };
   }
 });
 
