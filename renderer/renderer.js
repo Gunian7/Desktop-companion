@@ -896,20 +896,24 @@ async function loadVRMModel() {
   camera.position.set(0, 0.6, dist);
   vrmState.camera = camera;
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
+  // 天空/地面半球光（柔和自然光）
+  const hemiLight = new THREE.HemisphereLight(0xddeeff, 0x8899aa, 0.4);
+  scene.add(hemiLight);
+
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
   scene.add(ambientLight);
 
-  const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
-  mainLight.position.set(1, 2, 1);
+  const mainLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  mainLight.position.set(0.5, 1, 1);
   scene.add(mainLight);
 
-  const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
-  fillLight.position.set(-1, 0.3, 1);
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  fillLight.position.set(-1, 0.2, 0.5);
   scene.add(fillLight);
 
-  const backLight = new THREE.DirectionalLight(0xffffff, 0.3);
-  backLight.position.set(0, -0.5, -1);
-  scene.add(backLight);
+  const rimLight = new THREE.DirectionalLight(0xffeedd, 0.4);
+  rimLight.position.set(0, 0, -1);
+  scene.add(rimLight);
 
   vrmState.clock = new THREE.Clock();
 
@@ -945,7 +949,7 @@ async function loadVRMModel() {
       const mat = mats[0];
 
       if (mat.isShaderMaterial) {
-        const newMat = new THREE.MeshBasicMaterial();
+        const newMat = new THREE.MeshPhongMaterial();
         if (mat.uniforms?.map?.value) {
           newMat.map = mat.uniforms.map.value;
         }
@@ -961,6 +965,8 @@ async function loadVRMModel() {
         newMat.depthTest = true;
         newMat.renderOrder = mat.transparent ? 1 : 0;
         newMat.side = mat.side || THREE.DoubleSide;
+        newMat.shininess = 30;
+        newMat.specular = new THREE.Color(0x333333);
         newMat.needsUpdate = true;
         child.material = newMat;
         replacedCount++;
