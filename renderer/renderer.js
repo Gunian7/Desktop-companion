@@ -67,6 +67,22 @@ function hideBubble(delay = 0) {
   }, delay);
 }
 
+function showError(msg) {
+  console.error("[App Error]", msg);
+  clearTimeout(state.bubbleHideTimer);
+  bubble.textContent = msg;
+  bubble.style.display = "block";
+  bubble.style.background = "rgba(255, 220, 220, 0.92)";
+  bubble.style.border = "1px solid rgba(200, 80, 80, 0.5)";
+  // 错误消息保持 12 秒，足够阅读
+  state.bubbleHideTimer = window.setTimeout(() => {
+    bubble.style.display = "none";
+    bubble.textContent = "";
+    bubble.style.background = "";
+    bubble.style.border = "";
+  }, 12000);
+}
+
 function finalizeBubbleAfterSpeech() {
   clearTimeout(state.bubbleHideTimer);
   state.bubbleHideTimer = window.setTimeout(() => {
@@ -353,7 +369,7 @@ function bindSpeechInput() {
           }
         } catch (error) {
           console.error("Local ASR failed:", error);
-          showBubble(`\u8bed\u97f3\u8bc6\u522b\u5931\u8d25\uff1a${error.message || error}`);
+          showError("语音识别失败：" + (error.message || error));
         } finally {
           if (state.mediaStream) {
             state.mediaStream.getTracks().forEach((track) => track.stop());
@@ -367,7 +383,7 @@ function bindSpeechInput() {
     } catch (error) {
       console.error("Microphone start failed:", error);
       setListening(false);
-      showBubble(`\u65e0\u6cd5\u5f00\u542f\u9ea6\u514b\u98ce\uff1a${error.message || error}`);
+      showError("无法开启麦克风：" + (error.message || error));
       hideBubble(2000);
     }
   });
@@ -877,7 +893,7 @@ async function processSpeechQueue() {
       console.error("Speech synthesis failed:", error);
       state.speakQueue = [];
       const errMsg = error.message || String(error);
-      showBubble("语音播放失败：" + (errMsg.length > 60 ? errMsg.slice(0, 60) + "..." : errMsg));
+      showError("语音播放失败：" + errMsg);
       break;
     }
   }
@@ -1333,7 +1349,7 @@ function loadImageAvatar() {
     : "";
 
   avatarImage.onerror = () => {
-    showBubble("图片加载失败，请检查路径：" + (imgConfig.src || "未设置"));
+    showError("图片加载失败：" + (imgConfig.src || "未设置"));
     setTimeout(() => hideBubble(4000), 500);
   };
 
@@ -1476,7 +1492,7 @@ async function handleUserInput(userText) {
     }
 
     console.error("Conversation failed:", error);
-    showBubble(`\u51fa\u9519\u4e86\uff1a${error.message || error}`);
+    showError("出错了：" + (error.message || error));
   } finally {
     setBusy(false);
     flushSpeechWaiters();
@@ -1549,7 +1565,7 @@ async function bootstrap() {
     hideBubble(1800);
   } catch (error) {
     console.error("Bootstrap failed:", error);
-    showBubble(`\u521d\u59cb\u5316\u5931\u8d25\uff1a${error.message || error}`);
+    showError("初始化失败：" + (error.message || error));
   }
 }
 
