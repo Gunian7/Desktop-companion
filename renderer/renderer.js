@@ -930,18 +930,13 @@ async function loadVRMModel() {
 
   // 替换 ShaderMaterial，丢弃描边材质减少绘制调用
   let replacedCount = 0;
-  let skippedHighPoly = 0;
+  let totalVerts = 0;
   vrm.scene.traverse((child) => {
     if (child.isMesh && child.material) {
-      // 跳过超过 3000 顶点的高面数网格（GPU 显存不足）
-      const geo = child.geometry;
-      const vertCount = geo.attributes.position ? geo.attributes.position.count : 0;
-      if (vertCount > 3000) {
-        child.visible = false;
-        skippedHighPoly++;
-        console.log("[VRM] Skip high-poly mesh:", child.name, vertCount, "verts");
-        return;
-      }
+      const vertCount = child.geometry.attributes.position
+        ? child.geometry.attributes.position.count
+        : 0;
+      totalVerts += vertCount;
 
       const mats = Array.isArray(child.material)
         ? child.material
@@ -979,7 +974,14 @@ async function loadVRMModel() {
       child.renderOrder = 0;
     }
   });
-  console.log("[VRM] Replaced", replacedCount, "materials, skipped", skippedHighPoly, "high-poly meshes.");
+  console.log("[VRM] Replaced", replacedCount, "materials, total verts:", totalVerts);
+
+  if (totalVerts > 100000) {
+    console.warn("[VRM] WARNING: Model has", totalVerts, "total vertices — very high-poly!");
+    console.warn("[VRM] It may crash GPU in transparent window. Recommend decimating in Blender (target <50K).");
+    showBubble("模型面数极高（" + Math.round(totalVerts/1000) + "K 顶点），建议用 Blender 减面后再使用。");
+    setTimeout(() => hideBubble(6000), 1000);
+  }
 
   // 自动适配模型大小
   const box = new THREE.Box3().setFromObject(vrm.scene);
