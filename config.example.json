@@ -7,6 +7,7 @@
     "maxHistoryTurns": 4
   },
   "tts": {
+    "provider": "sovits",
     "baseURL": "http://127.0.0.1:9880",
     "apiMode": "auto",
     "endpoint": "/tts",
@@ -18,7 +19,12 @@
     "mediaType": "wav",
     "streamingMode": false,
     "parallelInfer": false,
-    "splitBucket": false
+    "splitBucket": false,
+    "apiBaseURL": "https://api.openai.com/v1",
+    "apiKey": "sk-your-tts-api-key",
+    "apiModel": "tts-1",
+    "apiVoice": "alloy",
+    "apiFormat": "wav"
   },
   "live2d": {
     "modelPath": "../assets/live2d/ggc-10qpt01/10qpt01__l2d_355.u.model3.json",

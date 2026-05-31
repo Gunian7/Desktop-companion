@@ -87,17 +87,41 @@ cp config.example.json config.json
 
 支持任何兼容 OpenAI API 格式的服务（OpenAI、Anthropic、本地 ollama 等）。
 
-#### TTS 配置（GPT-SoVITS）
+#### TTS 配置
+
+支持两种 TTS 模式，通过 `provider` 字段切换：
+
+**GPT-SoVITS（本地部署）— provider: "sovits"**
 
 ```json
 {
   "tts": {
+    "provider": "sovits",
     "baseURL": "http://127.0.0.1:9880",
     "refAudioPath": "你的参考音频路径.wav",
     "promptText": "参考音频对应的文本"
   }
 }
 ```
+
+**第三方 API TTS — provider: "api"**
+
+兼容 OpenAI TTS API 格式的服务（OpenAI、Azure、任意兼容接口等）：
+
+```json
+{
+  "tts": {
+    "provider": "api",
+    "apiBaseURL": "https://api.openai.com/v1",
+    "apiKey": "sk-your-tts-api-key",
+    "apiModel": "tts-1",
+    "apiVoice": "alloy",
+    "apiFormat": "wav"
+  }
+}
+```
+
+支持自定义 `apiVoice`（如 alloy, echo, fable, onyx, nova, shimmer）和 `apiModel`（如 tts-1, tts-1-hd）。
 
 #### Live2D 模型
 
@@ -145,6 +169,11 @@ npm start
 | `tts.baseURL` | GPT-SoVITS API 地址 |
 | `tts.refAudioPath` | 参考音频路径（用于音色克隆）|
 | `tts.promptText` | 参考音频的文本内容 |
+| `tts.provider` | TTS 模式：`"sovits"` 或 `"api"` |
+| `tts.apiBaseURL` | 第三方 TTS API 地址 |
+| `tts.apiKey` | 第三方 TTS API 密钥 |
+| `tts.apiModel` | 第三方 TTS 模型（如 tts-1）|
+| `tts.apiVoice` | 第三方 TTS 音色（如 alloy）|
 | `live2d.modelPath` | Live2D 模型 JSON 路径 |
 | `live2d.scale` | 模型缩放比例 |
 | `live2d.x` / `live2d.y` | 模型位置偏移 |

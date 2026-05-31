@@ -578,7 +578,37 @@ async function requestTTSLegacy(text) {
   return response.arrayBuffer();
 }
 
+async function requestTTSViaAPI(text) {
+  const ttsConfig = state.config.tts;
+  const baseURL = normalizeBaseURL(ttsConfig.apiBaseURL);
+  const response = await fetch(`${baseURL}/audio/speech`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ttsConfig.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: ttsConfig.apiModel || "tts-1",
+      input: text,
+      voice: ttsConfig.apiVoice || "alloy",
+      response_format: ttsConfig.apiFormat || "wav",
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return response.arrayBuffer();
+}
+
 async function requestTTSAudio(text) {
+  const provider = state.config.tts.provider || "sovits";
+
+  if (provider === "api") {
+    return requestTTSViaAPI(text);
+  }
+
   const mode = state.config.tts.apiMode || "auto";
 
   if (mode === "legacy") {
@@ -816,7 +846,15 @@ async function handleUserInput(userText) {
     return;
   }
 
-  if (!state.config.tts.refAudioPath) {
+  const ttsProvider = state.config.tts.provider || "sovits";
+
+  if (ttsProvider === "api") {
+    if (!state.config.tts.apiKey) {
+      showBubble("\u8bf7\u5148\u5728 config.json \u91cc\u586b\u5165\u7b2c\u4e09\u65b9 TTS \u7684 API Key\u3002");
+      hideBubble(2600);
+      return;
+    }
+  } else if (!state.config.tts.refAudioPath) {
     showBubble("\u8bf7\u5148\u5728 config.json \u91cc\u8bbe\u7f6e GPT-SoVITS \u7684\u53c2\u8003\u97f3\u9891\u3002");
     hideBubble(2600);
     return;
