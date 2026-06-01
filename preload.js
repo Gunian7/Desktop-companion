@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setWindowPosition: (x, y) => ipcRenderer.send("set-window-position", { x, y }),
   resizeWindow: (width, height) => ipcRenderer.send("resize-window", { width, height }),
   transcribeAudio: (payload) => ipcRenderer.invoke("transcribe-audio", payload),
+  appendMemories: (payload) => ipcRenderer.invoke("append-memories", payload),
 });

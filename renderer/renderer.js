@@ -24,6 +24,7 @@ const state = {
   currentAbortController: null,
   bubbleHideTimer: 0,
   chatHistory: [],
+  exchangeSinceLastMemory: 0,
   speakQueue: [],
   speechWaiters: [],
   isSpeaking: false,
@@ -553,7 +554,7 @@ function setupDashScopeASR() {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                Authorization: "Bearer " + (state.config.llm.apiKey || ""),
+                Authorization: "Bearer " + (state.config.asr?.apiKey || state.config.llm.apiKey || ""),
               },
               body: JSON.stringify({
                 model: "paraformer-v2",
@@ -1168,7 +1169,7 @@ async function requestTTSAudio(text) {
 }
 
 async function speakText(text) {
-  const trimmed = text.trim();
+  const trimmed = text.replace(/[（(][^)）]*[)）]/g, "").trim();
   if (!trimmed) {
     return;
   }
@@ -1237,6 +1238,7 @@ async function* streamLLM(userMessage, signal) {
     body: JSON.stringify({
       model: llmConfig.model,
       stream: true,
+      thinking: { type: "disabled" },
       messages: buildMessages(userMessage),
     }),
     signal,
@@ -1886,7 +1888,7 @@ function setupQwenASR() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: "Bearer " + llmConfig.apiKey,
+          Authorization: "Bearer " + (state.config.asr?.apiKey || llmConfig.apiKey),
           "X-DashScope-SSE": "enable",
         },
         body: JSON.stringify({
@@ -1956,6 +1958,65 @@ function setupQwenASR() {
   }
 }
 
+async function extractMemories() {
+  // 取最近 10 轮对话
+  const recent = state.chatHistory.slice(-20);
+  if (recent.length < 4) return;
+
+  const conversation = recent
+    .map((m) => (m.role === "user" ? "高阳：" : "顾念卿：") + m.content)
+    .join("\n");
+
+  const llmConfig = state.config.llm;
+
+  try {
+    const response = await fetch(`${normalizeBaseURL(llmConfig.baseURL)}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${llmConfig.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: llmConfig.model,
+        thinking: { type: "disabled" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "你是记忆提取助手。从对话中提取关于\"高阳\"的新信息，以简洁的列表形式输出。只提取值得长期记住的事实（偏好、习惯、经历、想法、关系等）。忽略日常寒暄和已说过的事。每条一行，用\"- \"开头。如果没有值得记住的新信息，输出\"无\"。",
+          },
+          { role: "user", content: conversation },
+        ],
+        temperature: 0.3,
+        max_tokens: 500,
+      }),
+    });
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content?.trim();
+    if (!text || text === "无") return;
+
+    // 提取所有以 "- " 开头的行
+    const items = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("- "))
+      .map((line) => line.replace(/^-\s*/, "- "));
+
+    if (items.length > 0) {
+      const result = await window.electronAPI.appendMemories({ items });
+      if (result?.added > 0) {
+        console.log("[Memory] 新增 " + result.added + " 条记忆");
+      }
+    }
+  } catch (err) {
+    // 静默失败，不影响主对话
+    console.warn("[Memory] 提取失败:", err.message);
+  }
+}
+
 async function handleUserInput(userText) {
   if (state.isBusy) {
     return;
@@ -2015,6 +2076,12 @@ async function handleUserInput(userText) {
         { role: "user", content: trimmed },
         { role: "assistant", content: fullResponse.trim() }
       );
+
+      state.exchangeSinceLastMemory++;
+      if (state.exchangeSinceLastMemory >= 5) {
+        state.exchangeSinceLastMemory = 0;
+        extractMemories(); // 后台异步提取，不阻塞
+      }
     }
 
     if (!state.isSpeaking && state.speakQueue.length === 0) {

@@ -13,6 +13,8 @@ app.commandLine.appendSwitch("use-angle", "swiftshader");
 
 const APP_ROOT = __dirname;
 const CONFIG_PATH = path.join(APP_ROOT, "config.json");
+const CHARACTER_PATH = path.join(APP_ROOT, "character.md");
+const MEMORIES_PATH = path.join(APP_ROOT, "memories.md");
 const ASSETS_ROOT = path.join(APP_ROOT, "assets");
 const TEMP_ROOT = path.join(APP_ROOT, ".runtime-temp");
 const WINDOW_WIDTH = 400;
@@ -307,8 +309,24 @@ ipcMain.on("set-window-position", (_event, payload) => {
 
 ipcMain.handle("get-config", () => {
   const config = readConfig();
+
+  let systemPrompt = config.llm?.systemPrompt || "";
+  if (fs.existsSync(CHARACTER_PATH)) {
+    systemPrompt = fs.readFileSync(CHARACTER_PATH, "utf8").trim();
+  }
+  if (fs.existsSync(MEMORIES_PATH)) {
+    const memories = fs.readFileSync(MEMORIES_PATH, "utf8").trim();
+    if (memories) {
+      systemPrompt = systemPrompt + "\n\n以下是关于高阳、关于你们之间你需要记住的事情：\n" + memories;
+    }
+  }
+
   return {
     ...config,
+    llm: {
+      ...config.llm,
+      systemPrompt,
+    },
     live2d: {
       ...config.live2d,
       resolvedModelURL: resolveModelURL(config),
@@ -319,6 +337,33 @@ ipcMain.handle("get-config", () => {
     },
     appRoot: APP_ROOT,
   };
+});
+
+ipcMain.handle("append-memories", async (_event, payload) => {
+  const newItems = payload?.items;
+  if (!newItems || !Array.isArray(newItems) || newItems.length === 0) {
+    return { ok: false };
+  }
+
+  let existing = "";
+  if (fs.existsSync(MEMORIES_PATH)) {
+    existing = fs.readFileSync(MEMORIES_PATH, "utf8");
+  }
+
+  const existingLines = new Set(
+    existing.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  );
+
+  const toAppend = newItems
+    .map((item) => item.trim())
+    .filter((item) => item && !existingLines.has(item));
+
+  if (toAppend.length > 0) {
+    const suffix = existing.endsWith("\n") ? "" : "\n";
+    await fs.promises.appendFile(MEMORIES_PATH, suffix + toAppend.join("\n") + "\n", "utf8");
+  }
+
+  return { ok: true, added: toAppend.length };
 });
 
 ipcMain.handle("get-window-bounds", () => {
