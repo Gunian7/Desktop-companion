@@ -4,6 +4,8 @@ npm-debug.log*
 # 配置文件（包含 API 密钥等敏感信息）
 config.json
 config.local.json
+character.md
+memories.md
 
 # 运行时数据
 .electron-user-data/
